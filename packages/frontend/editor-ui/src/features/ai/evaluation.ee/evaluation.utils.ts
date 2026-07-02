@@ -1,6 +1,7 @@
 import startCase from 'lodash/startCase';
 import type { JsonValue } from 'n8n-workflow';
 import type { IconName } from '@n8n/design-system/components/N8nIcon/icons';
+import type { IExecutionResponse } from '@/features/execution/executions/executions.types';
 import type { TestCaseExecutionRecord, TestRunRecord } from './evaluation.api';
 import type { TestTableColumn } from './components/shared/TestTableBase.vue';
 
@@ -26,6 +27,25 @@ export function extractAnswerText(json: unknown): string {
 		return typeof only === 'object' && only !== null ? JSON.stringify(only) : String(only);
 	}
 	return JSON.stringify(json);
+}
+
+/**
+ * The node-under-test's answer for a case: the end node's output during the
+ * test run, stripped of its JSON envelope via `extractAnswerText`. Falls back to
+ * the case's persisted `outputs` when the execution isn't loaded (or the compiled
+ * config run had no setOutputs node, so `outputs` is empty).
+ */
+export function extractCaseAnswer(
+	execution: IExecutionResponse | null | undefined,
+	endNodeName: string,
+	fallbackOutputs: unknown,
+): string {
+	if (execution && endNodeName) {
+		const firstItem =
+			execution.data?.resultData?.runData?.[endNodeName]?.[0]?.data?.main?.[0]?.[0]?.json;
+		if (firstItem !== undefined) return extractAnswerText(firstItem);
+	}
+	return extractAnswerText(fallbackOutputs);
 }
 
 export type Column =
@@ -73,6 +93,17 @@ export function getUserDefinedMetricNames(
 ): string[] {
 	if (!metrics) return [];
 	return Object.keys(metrics).filter((key) => !PREDEFINED_METRIC_KEYS.has(key));
+}
+
+// The predefined operational metrics (token counts, execution time) present on a
+// run, in a stable display order. These are shown separately from check scores.
+export function getOperationalMetricEntries(
+	metrics: Record<string, number> | null | undefined,
+): Array<{ key: string; value: number }> {
+	if (!metrics) return [];
+	return [...PREDEFINED_METRIC_KEYS]
+		.filter((key) => key in metrics)
+		.map((key) => ({ key, value: metrics[key] }));
 }
 
 export function normalizeMetricValue(value: number | undefined): number | undefined {

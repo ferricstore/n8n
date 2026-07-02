@@ -54,12 +54,23 @@ export type CannedMetricKey =
 export type CannedMetric = {
 	key: CannedMetricKey;
 	labelKey: BaseTextKey;
+	// The action-phrased label shown in the "Add metric" dropdown (e.g. "To be
+	// similar to"). Used everywhere the metric is named — the overview chips and
+	// the result badges — so selecting an option and seeing it listed match.
+	// Falls back to `labelKey` for metrics not offered in the dropdown.
+	optionLabelKey?: BaseTextKey;
 	descriptionKey: BaseTextKey;
 	category: MetricCategory;
 	icon: IconName;
 	tileBg: string;
 	tileFg: string;
 };
+
+// The unified display label for a canned metric: the dropdown's option label
+// when present, else the noun label.
+export function cannedMetricLabelKey(metric: CannedMetric): BaseTextKey {
+	return metric.optionLabelKey ?? metric.labelKey;
+}
 
 export const LLM_JUDGE_METRIC_KEYS = new Set<CannedMetricKey>(['correctness', 'helpfulness']);
 
@@ -116,6 +127,7 @@ export const CANNED_METRICS: readonly CannedMetric[] = [
 	{
 		key: 'correctness',
 		labelKey: 'evaluations.wizardSidepanel.metric.correctness.label',
+		optionLabelKey: 'evaluations.tests.metric.correctness.option',
 		descriptionKey: 'evaluations.wizardSidepanel.metric.correctness.description',
 		category: 'aiBased',
 		icon: 'badge-check',
@@ -134,6 +146,7 @@ export const CANNED_METRICS: readonly CannedMetric[] = [
 	{
 		key: 'stringSimilarity',
 		labelKey: 'evaluations.wizardSidepanel.metric.stringSimilarity.label',
+		optionLabelKey: 'evaluations.tests.metric.stringSimilarity.option',
 		descriptionKey: 'evaluations.wizardSidepanel.metric.stringSimilarity.description',
 		category: 'stringSimilarity',
 		icon: 'case-upper',
@@ -152,6 +165,7 @@ export const CANNED_METRICS: readonly CannedMetric[] = [
 	{
 		key: 'toolsUsed',
 		labelKey: 'evaluations.wizardSidepanel.metric.toolsUsed.label',
+		optionLabelKey: 'evaluations.tests.metric.toolsUsed.option',
 		descriptionKey: 'evaluations.wizardSidepanel.metric.toolsUsed.description',
 		category: 'toolsUsed',
 		icon: 'wrench',

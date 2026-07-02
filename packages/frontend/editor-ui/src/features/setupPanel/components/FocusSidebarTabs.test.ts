@@ -93,7 +93,7 @@ describe('FocusSidebarTabs', () => {
 
 		expect(queryByText('Setup')).not.toBeInTheDocument();
 		expect(getByText('Focus')).toBeInTheDocument();
-		expect(getByText('Evaluations')).toBeInTheDocument();
+		expect(getByText('Tests')).toBeInTheDocument();
 	});
 
 	it('shows the Evaluations tab when the experiment is enabled AND an AI root node is present', () => {
@@ -101,7 +101,7 @@ describe('FocusSidebarTabs', () => {
 		aiRootNodes.value = [{ name: 'AI Agent', type: '@n8n/n8n-nodes-langchain.agent' }];
 		const { getByText } = renderComponent();
 
-		expect(getByText('Evaluations')).toBeInTheDocument();
+		expect(getByText('Tests')).toBeInTheDocument();
 	});
 
 	it('hides the Evaluations tab when the experiment is enabled but no AI root node is present', () => {
@@ -109,19 +109,19 @@ describe('FocusSidebarTabs', () => {
 		aiRootNodes.value = [];
 		const { queryByText } = renderComponent();
 
-		expect(queryByText('Evaluations')).not.toBeInTheDocument();
+		expect(queryByText('Tests')).not.toBeInTheDocument();
 	});
 
 	it('hides the Evaluations tab when no AI root node is present even after one is removed', async () => {
 		isEvaluationsEnabled.value = true;
 		aiRootNodes.value = [{ name: 'AI Agent', type: '@n8n/n8n-nodes-langchain.agent' }];
 		const { getByText, queryByText, rerender } = renderComponent();
-		expect(getByText('Evaluations')).toBeInTheDocument();
+		expect(getByText('Tests')).toBeInTheDocument();
 
 		aiRootNodes.value = [];
 		// Await reactivity flush
 		await rerender({});
-		expect(queryByText('Evaluations')).not.toBeInTheDocument();
+		expect(queryByText('Tests')).not.toBeInTheDocument();
 	});
 
 	it('should emit update:modelValue when a tab is clicked', async () => {

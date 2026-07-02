@@ -137,6 +137,26 @@ describe('useWizardHydration', () => {
 		expect(store.selectedMetricKeys).toEqual(['correctness']);
 	});
 
+	it('dedupes concurrent hydrate calls so awaiting one waits for the applied rows', async () => {
+		mocks.listEvaluationConfigs.mockResolvedValue([makeConfig()]);
+		mocks.getDataTableRowsApi.mockResolvedValue({ data: [{ id: 1, question: 'q1' }] });
+
+		const store = useEvaluationsWizardSidepanelStore();
+		const { hydrate } = useWizardHydration();
+
+		// Two overlapping callers share one in-flight run: the config + rows are
+		// fetched once, and both resolve only after the rows are applied.
+		await Promise.all([hydrate(), hydrate()]);
+
+		expect(mocks.listEvaluationConfigs).toHaveBeenCalledTimes(1);
+		expect(mocks.getDataTableRowsApi).toHaveBeenCalledTimes(1);
+		expect(store.inputs).toEqual({ question: 'q1' });
+
+		// Once settled, a later call starts a fresh run.
+		await hydrate();
+		expect(mocks.listEvaluationConfigs).toHaveBeenCalledTimes(2);
+	});
+
 	describe('restoring the last run', () => {
 		it('jumps to the results step pinned to the most recent run', async () => {
 			mocks.listEvaluationConfigs.mockResolvedValue([makeConfig()]);
@@ -406,6 +426,49 @@ describe('useWizardHydration', () => {
 		// First row still seeds the Step-2 form.
 		expect(store.expectedValues).toEqual({ expectedAnswer: 'a1' });
 		// Every row's expected values are kept, in dataset order, for the results pane.
+		expect(store.datasetExpectedByRow).toEqual([
+			{ expectedAnswer: 'a1' },
+			{ expectedAnswer: 'a2' },
+		]);
+	});
+
+	it('hydrates input values for every dataset row, indexed by position', async () => {
+		mocks.listEvaluationConfigs.mockResolvedValue([
+			makeConfig({
+				metrics: [
+					{
+						id: 'm',
+						name: 'correctness',
+						type: 'llm_judge',
+						config: {
+							preset: 'correctness',
+							provider: '@n8n/n8n-nodes-langchain.lmChatOpenAi',
+							credentialId: 'c',
+							model: 'm',
+							outputType: 'numeric',
+							inputs: { actualAnswer: '=', expectedAnswer: '=' },
+						},
+					},
+				],
+			}),
+		]);
+		mocks.getDataTableRowsApi.mockResolvedValue({
+			count: 2,
+			data: [
+				{ id: 1, createdAt: 't', updatedAt: 't', query: 'q1', expectedAnswer: 'a1' },
+				{ id: 2, createdAt: 't', updatedAt: 't', query: 'q2', expectedAnswer: 'a2' },
+			],
+		});
+
+		const store = useEvaluationsWizardSidepanelStore();
+		const { hydrate } = useWizardHydration();
+		await hydrate();
+
+		// First row still seeds the Step-2 form.
+		expect(store.inputs).toEqual({ query: 'q1' });
+		// Every row's input values are kept, in dataset order.
+		expect(store.datasetInputsByRow).toEqual([{ query: 'q1' }, { query: 'q2' }]);
+		// Expected values are unaffected by this addition.
 		expect(store.datasetExpectedByRow).toEqual([
 			{ expectedAnswer: 'a1' },
 			{ expectedAnswer: 'a2' },

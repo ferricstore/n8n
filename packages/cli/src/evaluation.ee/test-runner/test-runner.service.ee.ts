@@ -564,6 +564,7 @@ export class TestRunnerService {
 			evaluationConfigId?: string;
 			evaluationConfigSnapshot?: IDataObject;
 			compileFromConfig?: boolean;
+			rowIndices?: number[];
 		},
 	): Promise<{ testRun: TestRun; finished: Promise<void> }> {
 		const requestedConcurrency = Math.max(1, Math.min(10, Math.floor(concurrency)));
@@ -663,6 +664,7 @@ export class TestRunnerService {
 			effectiveConcurrency,
 			concurrencyLimitedByConfig,
 			runType,
+			rowIndices: options?.rowIndices,
 		});
 
 		return { testRun, finished };
@@ -676,6 +678,7 @@ export class TestRunnerService {
 		effectiveConcurrency,
 		concurrencyLimitedByConfig,
 		runType,
+		rowIndices,
 	}: {
 		user: User;
 		workflowId: string;
@@ -684,6 +687,7 @@ export class TestRunnerService {
 		effectiveConcurrency: number;
 		concurrencyLimitedByConfig: boolean;
 		runType: 'config' | 'direct';
+		rowIndices?: number[];
 	}): Promise<void> {
 		// Initialize telemetry metadata
 		const telemetryMeta = {
@@ -751,17 +755,30 @@ export class TestRunnerService {
 				workflow,
 			);
 
-			const testCases = datasetTriggerOutput.map((items) => ({ json: items.json }));
+			const allTestCases = datasetTriggerOutput.map((items) => ({ json: items.json }));
+
+			// Determine which dataset rows to run. When `rowIndices` is provided
+			// and non-empty, only those rows are executed; otherwise all rows run.
+			// Out-of-range indices are silently dropped.
+			const indicesToRun =
+				rowIndices && rowIndices.length > 0
+					? rowIndices.filter((i) => i >= 0 && i < allTestCases.length)
+					: allTestCases.map((_, i) => i);
+
+			const testCases = indicesToRun.map((i) => allTestCases[i]);
 			telemetryMeta.test_case_count = testCases.length;
 
-			this.logger.debug('Found test cases', { count: testCases.length });
+			this.logger.debug('Found test cases', {
+				total: allTestCases.length,
+				running: testCases.length,
+			});
 
-			// Seed one TestCaseExecution row per dataset entry so the FE can
-			// render placeholder cards while the run is in progress and the
-			// user can pre-emptively cancel pending cases (TRUST-70).
+			// Seed one TestCaseExecution row per case to run. Each row's `runIndex`
+			// equals the original dataset index so the FE can map results back even
+			// when only a subset of rows is executed.
 			const seededCases = await this.testCaseExecutionRepository.createPendingBatch(
 				testRun.id,
-				testCases.length,
+				indicesToRun,
 			);
 
 			// Initialize object to collect the results of the evaluation workflow executions

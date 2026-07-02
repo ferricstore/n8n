@@ -43,9 +43,23 @@ export function useWizardHydration() {
 	const locale = useI18n();
 
 	const isHydrating = ref(false);
+	// The single in-flight hydrate. Concurrent callers await the SAME promise
+	// instead of short-circuiting, so a caller that awaits `hydrate()` is
+	// guaranteed the store is fully hydrated (dataset rows applied) before it
+	// runs — otherwise a late `applyDatasetRowsToStore` could clobber inputs a
+	// caller set after its early-returning `hydrate()` resolved.
+	let inFlight: Promise<void> | null = null;
 
 	async function hydrate(): Promise<void> {
-		if (isHydrating.value) return;
+		if (!inFlight) {
+			inFlight = doHydrate().finally(() => {
+				inFlight = null;
+			});
+		}
+		await inFlight;
+	}
+
+	async function doHydrate(): Promise<void> {
 		const wf = workflowDocumentStore.value;
 		const workflowId = wf?.workflowId;
 		const projectId = wf?.homeProject?.id;
@@ -148,6 +162,7 @@ export function useWizardHydration() {
 		// row (by `runIndex`). The first row additionally seeds the Step-2 form's
 		// inputs/expected fields.
 		wizardStore.datasetExpectedByRow = rows.map((row) => splitDatasetRow(row).expected);
+		wizardStore.datasetInputsByRow = rows.map((row) => splitDatasetRow(row).inputs);
 		const first = rows[0];
 		if (!first) return;
 		const { inputs, expected } = splitDatasetRow(first);
