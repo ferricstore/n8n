@@ -4,6 +4,7 @@ import { validateWorkflow, type WorkflowJSON } from '@n8n/workflow-sdk';
 
 import { buildCredentialHostIndex, resolveCredentialByUrl } from './credential-url-resolver';
 import { detectArrayInputCollapse } from './detect-array-input-collapse';
+import { detectUnparseableOpenAiSchema } from './detect-unparseable-openai-schema';
 import { collectValidationIssues, type ValidationWarning } from './workflow-validation-warnings';
 import type { InstanceAiContext } from '../../types';
 import { escapeSingleQuotes, runInSandbox } from '../../workspace/sandbox-fs';
@@ -85,6 +86,7 @@ function validateCompiledWorkflow(
 	collectValidationIssues(schemaValidation.errors, warnings);
 	collectValidationIssues(schemaValidation.warnings, warnings);
 	warnings.push(...detectArrayInputCollapse(json));
+	warnings.push(...detectUnparseableOpenAiSchema(json));
 	return warnings;
 }
 
