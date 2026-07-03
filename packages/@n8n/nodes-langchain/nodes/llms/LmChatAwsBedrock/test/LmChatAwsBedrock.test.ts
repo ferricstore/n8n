@@ -184,6 +184,77 @@ describe('LmChatAwsBedrock', () => {
 			);
 		});
 
+		describe('guardrails', () => {
+			it('should pass guardrailConfig alongside existing options', async () => {
+				const ctx = setupMockContext();
+				ctx.getNodeParameter = vi.fn().mockImplementation((paramName: string) => {
+					if (paramName === 'model') return 'amazon.nova-pro-v1:0';
+					if (paramName === 'options')
+						return {
+							temperature: 0.5,
+							maxTokensToSample: 1000,
+							guardrailIdentifier: 'abc123xyz',
+							guardrailVersion: '2',
+						};
+					return undefined;
+				});
+
+				await node.supplyData.call(ctx, 0);
+
+				expect(MockedChatBedrockConverse).toHaveBeenCalledWith(
+					expect.objectContaining({
+						temperature: 0.5,
+						maxTokens: 1000,
+						guardrailConfig: { guardrailIdentifier: 'abc123xyz', guardrailVersion: '2' },
+					}),
+				);
+			});
+
+			it('should omit guardrailConfig when no guardrail option is set', async () => {
+				const ctx = setupMockContext();
+				ctx.getNodeParameter = vi.fn().mockImplementation((paramName: string) => {
+					if (paramName === 'model') return 'amazon.nova-pro-v1:0';
+					if (paramName === 'options') return {};
+					return undefined;
+				});
+
+				await node.supplyData.call(ctx, 0);
+
+				expect(MockedChatBedrockConverse.mock.calls[0][0]).not.toHaveProperty('guardrailConfig');
+			});
+
+			it('should omit guardrailConfig when guardrail ID is added but left blank', async () => {
+				const ctx = setupMockContext();
+				ctx.getNodeParameter = vi.fn().mockImplementation((paramName: string) => {
+					if (paramName === 'model') return 'amazon.nova-pro-v1:0';
+					if (paramName === 'options')
+						return { guardrailIdentifier: '', guardrailVersion: 'DRAFT' };
+					return undefined;
+				});
+
+				await node.supplyData.call(ctx, 0);
+
+				expect(MockedChatBedrockConverse.mock.calls[0][0]).not.toHaveProperty('guardrailConfig');
+			});
+
+			it('should fall back to DRAFT when version option was never added', async () => {
+				const ctx = setupMockContext();
+				ctx.getNodeParameter = vi.fn().mockImplementation((paramName: string) => {
+					if (paramName === 'model') return 'amazon.nova-pro-v1:0';
+					if (paramName === 'options') return { guardrailIdentifier: 'abc123xyz' };
+					return undefined;
+				});
+
+				await node.supplyData.call(ctx, 0);
+
+				expect(MockedChatBedrockConverse).toHaveBeenCalledWith(
+					expect.objectContaining({
+						guardrailConfig: { guardrailIdentifier: 'abc123xyz', guardrailVersion: 'DRAFT' },
+					}),
+				);
+			});
+		});
+
 		describe('AssumeRole wiring', () => {
 			it('constructs BedrockRuntimeClient with the provider returned by resolveAwsCredentials', async () => {
 				const ctx = setupMockContext();

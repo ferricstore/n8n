@@ -212,6 +212,22 @@ export class LmChatAwsBedrock implements INodeType {
 				default: {},
 				options: [
 					{
+						displayName: 'Guardrail ID',
+						name: 'guardrailIdentifier',
+						type: 'string',
+						default: '',
+						description:
+							'The ID or ARN of the Bedrock guardrail to apply to model invocations. The guardrail must be in the same region as the model. <a href="https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html">Learn more</a>.',
+					},
+					{
+						displayName: 'Guardrail Version',
+						name: 'guardrailVersion',
+						type: 'string',
+						default: 'DRAFT',
+						description:
+							'The version of the guardrail to use, e.g. "1". Defaults to the working draft ("DRAFT").',
+					},
+					{
 						displayName: 'Maximum Number of Tokens',
 						name: 'maxTokensToSample',
 						default: 2000,
@@ -238,6 +254,8 @@ export class LmChatAwsBedrock implements INodeType {
 		const options = this.getNodeParameter('options', itemIndex, {}) as {
 			temperature: number;
 			maxTokensToSample: number;
+			guardrailIdentifier?: string;
+			guardrailVersion?: string;
 		};
 
 		// If the model is specified as a full ARN, extract the region from it
@@ -272,6 +290,17 @@ export class LmChatAwsBedrock implements INodeType {
 			region,
 			temperature: options.temperature,
 			maxTokens: options.maxTokensToSample,
+			...(options.guardrailIdentifier
+				? {
+						guardrailConfig: {
+							guardrailIdentifier: options.guardrailIdentifier,
+							// AWS requires a version whenever guardrailConfig is sent. The version option may be
+							// absent (never added in the UI — collection defaults only materialize on add) or
+							// cleared; fall back to the working draft in both cases.
+							guardrailVersion: options.guardrailVersion || 'DRAFT',
+						},
+					}
+				: {}),
 			callbacks: [new N8nLlmTracing(this)],
 			onFailedAttempt: makeN8nLlmFailedAttemptHandler(this),
 		});
