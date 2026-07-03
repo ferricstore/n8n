@@ -860,8 +860,14 @@ export interface TaskStorage {
 // ── Planned task graphs ─────────────────────────────────────────────────────
 
 export const PLANNED_TASK_KINDS = ['build-workflow', 'checkpoint'] as const;
-export const STORED_PLANNED_TASK_KINDS = PLANNED_TASK_KINDS;
-export type PlannedTaskKind = (typeof STORED_PLANNED_TASK_KINDS)[number];
+/** Legacy kinds still accepted when loading persisted graphs; failed at dispatch time. */
+export const LEGACY_PLANNED_TASK_KINDS = ['delegate'] as const;
+export const STORED_PLANNED_TASK_KINDS = [
+	...PLANNED_TASK_KINDS,
+	...LEGACY_PLANNED_TASK_KINDS,
+] as const;
+export type PlannedTaskKind = (typeof PLANNED_TASK_KINDS)[number];
+export type StoredPlannedTaskKind = (typeof STORED_PLANNED_TASK_KINDS)[number];
 
 export interface PlannedTask {
 	id: string;
@@ -881,7 +887,8 @@ export interface PlannedTask {
 
 export type PlannedTaskStatus = 'planned' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
-export interface PlannedTaskRecord extends PlannedTask {
+export interface PlannedTaskRecord extends Omit<PlannedTask, 'kind'> {
+	kind: StoredPlannedTaskKind;
 	status: PlannedTaskStatus;
 	agentId?: string;
 	backgroundTaskId?: string;
@@ -1009,7 +1016,7 @@ export type CheckpointSettleResult =
 	| {
 			ok: false;
 			reason: 'not-found' | 'wrong-kind' | 'wrong-status';
-			actual?: { kind?: PlannedTaskKind; status?: PlannedTaskStatus };
+			actual?: { kind?: StoredPlannedTaskKind; status?: PlannedTaskStatus };
 	  };
 
 // ── MCP ──────────────────────────────────────────────────────────────────────
