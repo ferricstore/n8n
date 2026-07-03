@@ -1,12 +1,16 @@
 <script lang="ts" setup>
-import { N8nBadge, N8nCard, N8nText } from '@n8n/design-system';
+import {
+	N8nBadge,
+	N8nCard,
+	N8nText,
+	N8nAnimatedCollapsibleContent as AnimatedCollapsibleContent,
+	N8nAiActivityStepChevron as TimelineStepChevron,
+	N8nAiActivityStepButton as TimelineStepButton,
+} from '@n8n/design-system';
 import { useI18n } from '@n8n/i18n';
 import { CollapsibleRoot, CollapsibleTrigger } from 'reka-ui';
-import AnimatedCollapsibleContent from './AnimatedCollapsibleContent.vue';
 import { computed } from 'vue';
 import { useToolLabel } from '../toolLabels';
-import TimelineStepChevron from './TimelineStepChevron.vue';
-import TimelineStepButton from './TimelineStepButton.vue';
 
 const props = defineProps<{
 	args: Record<string, unknown>;
