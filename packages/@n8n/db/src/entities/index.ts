@@ -51,6 +51,7 @@ import {
 import {
 	WorkflowPublicationTriggerStatus,
 	type WorkflowPublicationTriggerStatusType,
+	type WorkflowPublicationTriggerKind,
 } from './workflow-publication-trigger-status';
 import { WorkflowPublishHistory } from './workflow-publish-history';
 import { WorkflowPublishedVersion } from './workflow-published-version';
@@ -103,6 +104,7 @@ export {
 	WorkflowPublicationOutboxStatus,
 	WorkflowPublicationTriggerStatus,
 	type WorkflowPublicationTriggerStatusType,
+	type WorkflowPublicationTriggerKind,
 	WorkflowPublishedVersion,
 	WorkflowPublishHistory,
 	ExecutionData,

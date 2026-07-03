@@ -217,6 +217,7 @@ import { CreateWorkflowPublicationTriggerStatusTable1784000000040 } from '../com
 import { AddUsedPrivateCredentialsToExecutionEntity1784000000041 } from '../common/1784000000041-AddUsedPrivateCredentialsToExecutionEntity';
 import { CreateSchedulerTables1784000000042 } from '../common/1784000000042-CreateSchedulerTables';
 import type { Migration } from '../migration-types';
+import { AddTriggerKindToWorkflowPublicationTriggerStatus1784000000043 } from '../common/1784000000043-AddTriggerKindToWorkflowPublicationTriggerStatus';
 
 export const postgresMigrations: Migration[] = [
 	InitialMigration1587669153312,
@@ -437,4 +438,5 @@ export const postgresMigrations: Migration[] = [
 	CreateWorkflowPublicationTriggerStatusTable1784000000040,
 	AddUsedPrivateCredentialsToExecutionEntity1784000000041,
 	CreateSchedulerTables1784000000042,
+	AddTriggerKindToWorkflowPublicationTriggerStatus1784000000043,
 ];
