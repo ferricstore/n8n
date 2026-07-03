@@ -1713,42 +1713,42 @@ describe('NodeCredentials', () => {
 			expect(screen.queryByTestId('node-credential-private-icon')).not.toBeInTheDocument();
 		});
 
-		it('renders the private callout when a private credential is selected', async () => {
+		it('renders the private connection row when a private credential is selected', async () => {
 			renderComponent({ props: { node: notionNode, overrideCredType: 'openAiApi' } });
 
-			expect(screen.getByTestId('node-credential-private-callout')).toBeInTheDocument();
+			expect(screen.getByTestId('node-credential-private-row')).toBeInTheDocument();
 		});
 
-		it('does not render the callout for a static credential', async () => {
+		it('does not render the connection row for a static credential', async () => {
 			credentialsStore.state.credentials = {
 				c8vqdPpPClh4TgIO: createCredential({ isResolvable: false }),
 			};
 			renderComponent({ props: { node: httpNode, overrideCredType: 'openAiApi' } });
 
-			expect(screen.queryByTestId('node-credential-private-callout')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('node-credential-private-row')).not.toBeInTheDocument();
 		});
 
-		it('shows connected status row when connectedByMe is true', async () => {
+		it('shows the Connected dropdown when connectedByMe is true', async () => {
 			credentialsStore.state.credentials = {
 				'private-cred-id': { ...privateCredential, connectedByMe: true },
 			};
 			renderComponent({ props: { node: notionNode, overrideCredType: 'openAiApi' } });
 
-			expect(screen.getByText('Your account is connected')).toBeInTheDocument();
+			expect(screen.getByTestId('node-credential-private-connected-actions')).toBeInTheDocument();
 			expect(screen.queryByTestId('node-credential-private-connect')).not.toBeInTheDocument();
 		});
 
-		it('shows the connect prompt with a Connect button when connectedByMe is false', async () => {
+		it('shows the Connect button when connectedByMe is false', async () => {
 			credentialsStore.state.credentials = {
 				'private-cred-id': { ...privateCredential, connectedByMe: false },
 			};
 			renderComponent({ props: { node: notionNode, overrideCredType: 'openAiApi' } });
 
-			expect(screen.getByText('Connect your account')).toBeInTheDocument();
 			expect(screen.getByTestId('node-credential-private-connect')).toBeInTheDocument();
+			expect(screen.getByTestId('node-credential-private-connect')).toBeEnabled();
 		});
 
-		it('hides the Connect button when the user lacks update permission', async () => {
+		it('disables the Connect button when the user lacks connect permission', async () => {
 			credentialsStore.state.credentials = {
 				'private-cred-id': {
 					...privateCredential,
@@ -1758,8 +1758,7 @@ describe('NodeCredentials', () => {
 			};
 			renderComponent({ props: { node: notionNode, overrideCredType: 'openAiApi' } });
 
-			expect(screen.getByText('Connect your account')).toBeInTheDocument();
-			expect(screen.queryByTestId('node-credential-private-connect')).not.toBeInTheDocument();
+			expect(screen.getByTestId('node-credential-private-connect')).toBeDisabled();
 		});
 
 		it('clicking the Connect button calls uiStore.openExistingCredential with the credential id', async () => {
@@ -1776,24 +1775,24 @@ describe('NodeCredentials', () => {
 			);
 		});
 
-		it('still renders the callout when the workflow uses the default (system) resolver', async () => {
+		it('still renders the connection row when the workflow uses the default (system) resolver', async () => {
 			workflowDocumentStore.mergeSettings({ credentialResolverId: SYSTEM_RESOLVER_ID });
 			credentialsStore.state.credentials = {
 				'private-cred-id': { ...privateCredential, connectedByMe: false },
 			};
 			renderComponent({ props: { node: notionNode, overrideCredType: 'openAiApi' } });
 
-			expect(screen.getByTestId('node-credential-private-callout')).toBeInTheDocument();
+			expect(screen.getByTestId('node-credential-private-row')).toBeInTheDocument();
 		});
 
-		it('hides the callout when the workflow uses a non-default resolver', async () => {
+		it('hides the connection row when the workflow uses a non-default resolver', async () => {
 			workflowDocumentStore.mergeSettings({ credentialResolverId: 'slack-resolver' });
 			credentialsStore.state.credentials = {
 				'private-cred-id': { ...privateCredential, connectedByMe: false },
 			};
 			renderComponent({ props: { node: notionNode, overrideCredType: 'openAiApi' } });
 
-			expect(screen.queryByTestId('node-credential-private-callout')).not.toBeInTheDocument();
+			expect(screen.queryByTestId('node-credential-private-row')).not.toBeInTheDocument();
 		});
 	});
 });
