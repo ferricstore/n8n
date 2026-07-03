@@ -25,7 +25,7 @@ import DelegateCard from './DelegateCard.vue';
 import PlanReviewPanel, { type PlannedTaskArg, type PlanReviewStatus } from './PlanReviewPanel.vue';
 import TaskChecklist from './TaskChecklist.vue';
 import TimelineTextSegment from './TimelineTextSegment.vue';
-import ToolCallStep from './ToolCallStep.vue';
+import { N8nToolCallStep as ToolCallStep } from '@n8n/design-system';
 
 const i18n = useI18n();
 const thread = useThread();
