@@ -405,7 +405,8 @@ export class EvalExecutionService {
 
 			const runData: IWorkflowExecutionDataProcess = {
 				executionMode: 'evaluation',
-				workflowData: workflowEntity,
+				// Builder-verify runs persist staticData (e.g. dedup cursors); scenarios assume it starts empty.
+				workflowData: { ...workflowEntity, staticData: undefined },
 				userId: user.id,
 				executionData,
 				pinData,
