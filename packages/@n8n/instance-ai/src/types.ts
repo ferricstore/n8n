@@ -859,7 +859,7 @@ export interface TaskStorage {
 
 // ── Planned task graphs ─────────────────────────────────────────────────────
 
-export const PLANNED_TASK_KINDS = ['delegate', 'build-workflow', 'checkpoint'] as const;
+export const PLANNED_TASK_KINDS = ['build-workflow', 'checkpoint'] as const;
 export const STORED_PLANNED_TASK_KINDS = PLANNED_TASK_KINDS;
 export type PlannedTaskKind = (typeof STORED_PLANNED_TASK_KINDS)[number];
 
@@ -869,7 +869,6 @@ export interface PlannedTask {
 	kind: PlannedTaskKind;
 	spec: string;
 	deps: string[];
-	tools?: string[];
 	/** Existing workflow ID for build-workflow tasks that modify an existing workflow. */
 	workflowId?: string;
 	/**
@@ -1205,7 +1204,7 @@ export interface SpawnBackgroundTaskOptions {
 	/**
 	 * Link this background task to a running checkpoint in the planned-task
 	 * graph. Set when the orchestrator spawns a detached sub-agent (builder,
-	 * research, data-table, delegate) from inside a
+	 * research, data-table) from inside a
 	 * `<planned-task-follow-up type="checkpoint">` turn. The post-run safety
 	 * net defers failing the checkpoint while a child with this id is still
 	 * running, and settlement re-emits the checkpoint follow-up when the last
@@ -1246,7 +1245,7 @@ export interface WorkflowTaskService {
 	updateBuildOutcome(workItemId: string, update: Partial<WorkflowBuildOutcome>): Promise<void>;
 }
 
-// ── Orchestration context (plan + delegate tools) ───────────────────────────
+// ── Orchestration context (plan tools) ──────────────────────────────────────
 
 export interface OrchestrationContext {
 	threadId: string;
@@ -1257,7 +1256,6 @@ export interface OrchestrationContext {
 	orchestratorAgentId: string;
 	modelId: ModelConfig;
 	checkpointStore?: CheckpointStore;
-	subAgentMaxSteps: number;
 	eventBus: InstanceAiEventBus;
 	logger: Logger;
 	/** Output-redaction policy for sub-agent streams: omit for the safe default, or `false` to disable. */
