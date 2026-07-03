@@ -40,6 +40,8 @@ const targetOutputSchema = z.object({
 	workflowId: z.string().optional(),
 	failureCategory: z.string().optional(),
 	rootCause: z.string().optional(),
+	/** Verifier returned no verdict — run is excluded from scoring but stays visible. */
+	incomplete: z.boolean().optional(),
 	execErrors: z.array(z.string()).default([]),
 	evalResult: z.unknown().optional(),
 	/** Only set on the scenario that initiated the build. */
@@ -194,6 +196,7 @@ export function reshapeLangSmithRuns(
 					reasoning: output.reasoning,
 					failureCategory: output.failureCategory,
 					rootCause: output.rootCause,
+					...(output.incomplete ? { incomplete: true } : {}),
 				});
 			}
 
