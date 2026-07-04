@@ -32,10 +32,14 @@ const ALLOW_CONTAINER_ONLY = process.env.PLAYWRIGHT_ALLOW_CONTAINER_ONLY === 'tr
 const CONTAINER_CONFIGS: Array<{ name: string; config: N8NConfig }> = [
 	{ name: 'sqlite', config: {} },
 	{ name: 'postgres', config: { postgres: true } },
-	{ name: 'queue', config: { workers: 1 } },
+	{ name: 'queue', config: { workers: 1, services: ['ferricstore'] } },
 	{
 		name: 'multi-main',
-		config: { mains: 2, workers: 1, services: ['victoriaLogs', 'victoriaMetrics', 'vector'] },
+		config: {
+			mains: 2,
+			workers: 1,
+			services: ['ferricstore', 'victoriaLogs', 'victoriaMetrics', 'vector'],
+		},
 	},
 ];
 

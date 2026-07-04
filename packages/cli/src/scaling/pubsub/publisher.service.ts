@@ -6,6 +6,13 @@ import { InstanceSettings } from 'n8n-core';
 import type { LogMetadata } from 'n8n-workflow';
 
 import { RedisClientService } from '@/services/redis-client.service';
+import {
+	createFerricFlowWorkflowRecord,
+	createFerricStoreClient,
+	responseText,
+	type FerricStoreClient,
+} from '@/scaling/ferricflow/ferricstore-sdk';
+import { scalingWorkflowDefinition } from '@/scaling/ferricflow/scaling-workflows';
 
 import type { PubSub } from './pubsub.types';
 import {
@@ -22,7 +29,9 @@ import type { McpRelayMessage } from './subscriber.service';
  */
 @Service()
 export class Publisher {
-	private readonly client: SingleNodeClient | MultiNodeClient;
+	private readonly client?: SingleNodeClient | MultiNodeClient;
+
+	private ferricClient?: Promise<FerricStoreClient>;
 
 	private readonly commandChannel: string;
 
@@ -45,12 +54,16 @@ export class Publisher {
 		this.logger = this.logger.scoped(['scaling', 'pubsub']);
 
 		// Build prefixed channel names for proper isolation between deployments
-		const prefix = this.globalConfig.redis.prefix;
+		const prefix = this.scalingPrefix;
 		this.commandChannel = `${prefix}:${COMMAND_PUBSUB_CHANNEL}`;
 		this.workerResponseChannel = `${prefix}:${WORKER_RESPONSE_PUBSUB_CHANNEL}`;
 		this.mcpRelayChannel = `${prefix}:${MCP_RELAY_PUBSUB_CHANNEL}`;
 
-		this.client = this.redisClientService.createClient({ type: 'publisher(n8n)' });
+		if (this.scalingBackend === 'ferricflow') {
+			this.ferricClient = this.createFerricClient();
+		} else {
+			this.client = this.redisClientService.createClient({ type: 'publisher(n8n)' });
+		}
 	}
 
 	getClient() {
@@ -59,7 +72,8 @@ export class Publisher {
 
 	// @TODO: Use `@OnShutdown()` decorator
 	shutdown() {
-		this.client.disconnect();
+		this.client?.disconnect();
+		void this.ferricClient?.then(async (client) => await client.close());
 	}
 
 	// #endregion
@@ -71,7 +85,7 @@ export class Publisher {
 		// @TODO: Once this class is only ever used in scaling mode, remove next line.
 		if (this.executionsConfig.mode !== 'queue') return;
 
-		await this.client.publish(
+		await this.publish(
 			this.commandChannel,
 			JSON.stringify({
 				...msg,
@@ -97,7 +111,9 @@ export class Publisher {
 
 	/** Publish a response to a command into the worker response channel. */
 	async publishWorkerResponse(msg: PubSub.WorkerResponse) {
-		await this.client.publish(this.workerResponseChannel, JSON.stringify(msg));
+		if (this.executionsConfig.mode !== 'queue') return;
+
+		await this.publish(this.workerResponseChannel, JSON.stringify(msg));
 
 		this.logger.debug(`Published ${msg.response} to worker response channel`);
 	}
@@ -107,7 +123,7 @@ export class Publisher {
 		// @TODO: Once this class is only ever used in scaling mode, remove next line.
 		if (this.executionsConfig.mode !== 'queue') return;
 
-		await this.client.publish(this.mcpRelayChannel, JSON.stringify(msg));
+		await this.publish(this.mcpRelayChannel, JSON.stringify(msg));
 
 		this.logger.debug('Published MCP relay message', {
 			sessionId: msg.sessionId,
@@ -121,25 +137,100 @@ export class Publisher {
 	// #region Key-value utils (used by MCP session store and legacy leader election)
 
 	async setIfNotExists(key: string, value: string, ttl: number) {
-		const result = await this.client.set(key, value, 'EX', ttl, 'NX');
+		if (this.scalingBackend === 'ferricflow') {
+			const result = await (await this.getFerricClient()).command(
+				'SET',
+				key,
+				value,
+				'EX',
+				ttl,
+				'NX',
+			);
+			return responseText(result).toUpperCase() === 'OK';
+		}
+
+		const result = await this.client?.set(key, value, 'EX', ttl, 'NX');
 		return result === 'OK';
 	}
 
 	async set(key: string, value: string, ttl: number) {
-		await this.client.set(key, value, 'EX', ttl);
+		if (this.scalingBackend === 'ferricflow') {
+			await (await this.getFerricClient()).command('SET', key, value, 'EX', ttl);
+			return;
+		}
+
+		await this.client?.set(key, value, 'EX', ttl);
 	}
 
 	async setExpiration(key: string, ttl: number) {
-		await this.client.expire(key, ttl);
+		if (this.scalingBackend === 'ferricflow') {
+			await (await this.getFerricClient()).command('EXPIRE', key, ttl);
+			return;
+		}
+
+		await this.client?.expire(key, ttl);
 	}
 
 	async get(key: string) {
-		return await this.client.get(key);
+		if (this.scalingBackend === 'ferricflow') {
+			const value = await (await this.getFerricClient()).command('GET', key);
+			return value == null ? null : responseText(value);
+		}
+
+		return (await this.client?.get(key)) ?? null;
 	}
 
 	async clear(key: string) {
+		if (this.scalingBackend === 'ferricflow') {
+			await (await this.getFerricClient()).command('DEL', key);
+			return;
+		}
+
 		await this.client?.del(key);
 	}
 
 	// #endregion
+
+	private get scalingBackend() {
+		return this.globalConfig.queue?.backend ?? 'ferricflow';
+	}
+
+	private get scalingPrefix() {
+		return this.scalingBackend === 'ferricflow'
+			? this.globalConfig.queue.ferricflow.prefix
+			: this.globalConfig.redis.prefix;
+	}
+
+	private createFerricClient() {
+		return createFerricStoreClient(
+			this.globalConfig.queue.ferricflow.sdkPath,
+			this.globalConfig.queue.ferricflow.url,
+			'n8n-scaling-publisher',
+		);
+	}
+
+	private async getFerricClient() {
+		this.ferricClient ??= this.createFerricClient();
+		return await this.ferricClient;
+	}
+
+	private async publish(channel: string, message: string) {
+		if (this.scalingBackend === 'ferricflow') {
+			await createFerricFlowWorkflowRecord(await this.getFerricClient(), {
+				...this.scalingWorkflow(channel),
+				payload: { channel, message },
+			});
+			return;
+		}
+
+		await this.client?.publish(channel, message);
+	}
+
+	private scalingWorkflow(channel: string) {
+		return scalingWorkflowDefinition(this.scalingPrefix, channel, {
+			commandChannel: this.commandChannel,
+			mcpRelayChannel: this.mcpRelayChannel,
+			workerResponseChannel: this.workerResponseChannel,
+		});
+	}
 }

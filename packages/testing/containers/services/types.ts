@@ -6,6 +6,7 @@ export const EXTERNAL_HOST = 'host.docker.internal';
 export const SERVICE_NAMES = [
 	'postgres',
 	'redis',
+	'ferricstore',
 	'mailpit',
 	'gitea',
 	'keycloak',
@@ -105,7 +106,7 @@ export interface Service<TResult extends ServiceResult = ServiceResult> {
 	readonly description: string;
 	/** @example ['victoriaLogs'] // vector depends on victoriaLogs */
 	readonly dependsOn?: readonly ServiceName[];
-	/** @example (ctx) => ctx.isQueueMode // redis auto-starts in queue mode */
+	/** @example (ctx) => ctx.isQueueMode // service auto-starts in queue mode */
 	shouldStart?(ctx: StartContext): boolean;
 	/** @example (ctx) => ({ taskBrokerUri: `http://${ctx.projectName}-n8n:5679` }) */
 	getOptions?(ctx: StartContext): unknown;

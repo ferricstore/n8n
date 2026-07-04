@@ -6,6 +6,126 @@ import { sleep } from 'n8n-workflow';
 import config from '@/config';
 import { CacheService } from '@/services/cache/cache.service';
 
+const ferricStoreMock = vi.hoisted(() => {
+	type Entry =
+		| { kind: 'string'; value: string; expiresAt?: number }
+		| { kind: 'hash'; value: Map<string, string>; expiresAt?: number };
+	const data = new Map<string, Entry>();
+	const isExpired = (entry: Entry) =>
+		entry.expiresAt !== undefined && Date.now() >= entry.expiresAt;
+	const getEntry = (key: string) => {
+		const entry = data.get(key);
+		if (!entry) return undefined;
+		if (isExpired(entry)) {
+			data.delete(key);
+			return undefined;
+		}
+		return entry;
+	};
+	const patternToRegex = (pattern: string) =>
+		new RegExp(`^${pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')}$`);
+	const text = (value: unknown) =>
+		Buffer.isBuffer(value) ? value.toString('utf8') : String(value);
+	const client = {
+		async close() {},
+		async command(command: string, ...args: unknown[]) {
+			switch (command) {
+				case 'GET': {
+					const entry = getEntry(text(args[0]));
+					return entry?.kind === 'string' ? entry.value : null;
+				}
+				case 'SET': {
+					const key = text(args[0]);
+					const value = text(args[1]);
+					const pxIndex = args.findIndex((arg) => text(arg).toUpperCase() === 'PX');
+					const expiresAt =
+						pxIndex >= 0 && args[pxIndex + 1] !== undefined
+							? Date.now() + Number(args[pxIndex + 1])
+							: undefined;
+					data.set(key, { kind: 'string', value, expiresAt });
+					return 'OK';
+				}
+				case 'MGET':
+					return args.map((key) => {
+						const entry = getEntry(text(key));
+						return entry?.kind === 'string' ? entry.value : null;
+					});
+				case 'DEL': {
+					let deleted = 0;
+					for (const key of args) {
+						if (data.delete(text(key))) deleted += 1;
+					}
+					return deleted;
+				}
+				case 'PTTL': {
+					const entry = getEntry(text(args[0]));
+					if (!entry) return -2;
+					if (entry.expiresAt === undefined) return -1;
+					return Math.max(0, entry.expiresAt - Date.now());
+				}
+				case 'EXPIRE': {
+					const entry = getEntry(text(args[0]));
+					if (!entry) return 0;
+					entry.expiresAt = Date.now() + Number(args[1]) * 1000;
+					return 1;
+				}
+				case 'KEYS': {
+					const regex = patternToRegex(text(args[0]));
+					return [...data.keys()].filter((key) => getEntry(key) !== undefined && regex.test(key));
+				}
+				case 'HSET': {
+					const key = text(args[0]);
+					const current = getEntry(key);
+					const hash =
+						current?.kind === 'hash'
+							? current
+							: ({ kind: 'hash', value: new Map<string, string>() } satisfies Entry);
+					for (let index = 1; index < args.length; index += 2) {
+						hash.value.set(text(args[index]), text(args[index + 1]));
+					}
+					data.set(key, hash);
+					return args.length > 1 ? Math.floor((args.length - 1) / 2) : 0;
+				}
+				case 'HGET': {
+					const entry = getEntry(text(args[0]));
+					return entry?.kind === 'hash' ? (entry.value.get(text(args[1])) ?? null) : null;
+				}
+				case 'HGETALL': {
+					const entry = getEntry(text(args[0]));
+					return entry?.kind === 'hash' ? [...entry.value.entries()].flat() : [];
+				}
+				case 'HKEYS': {
+					const entry = getEntry(text(args[0]));
+					return entry?.kind === 'hash' ? [...entry.value.keys()] : [];
+				}
+				case 'HVALS': {
+					const entry = getEntry(text(args[0]));
+					return entry?.kind === 'hash' ? [...entry.value.values()] : [];
+				}
+				case 'HEXISTS': {
+					const entry = getEntry(text(args[0]));
+					return entry?.kind === 'hash' && entry.value.has(text(args[1])) ? 1 : 0;
+				}
+				case 'HDEL': {
+					const entry = getEntry(text(args[0]));
+					return entry?.kind === 'hash' && entry.value.delete(text(args[1])) ? 1 : 0;
+				}
+				default:
+					throw new Error(`Unexpected FerricStore command: ${command}`);
+			}
+		},
+	};
+
+	return {
+		client,
+		createFerricStoreClient: vi.fn(async () => client),
+		reset: () => data.clear(),
+		responseText: text,
+	};
+});
+
+vi.mock('@/scaling/ferricflow/ferricstore-sdk', () => ferricStoreMock);
+
 vi.mock('ioredis', () => {
 	const Redis = require('ioredis-mock');
 
@@ -19,27 +139,39 @@ vi.mock('ioredis', () => {
 	};
 });
 
-for (const backend of ['memory', 'redis'] as const) {
+const ensureFerricStoreCacheConfig = (globalConfig: GlobalConfig) => {
+	globalConfig.cache.ferricstore ??= {
+		prefix: 'cache',
+		ttl: 3_600_000,
+	};
+};
+
+for (const backend of ['memory', 'redis', 'ferricstore'] as const) {
 	describe(backend, () => {
 		let cacheService: CacheService;
 		let globalConfig: GlobalConfig;
 
 		beforeAll(async () => {
 			globalConfig = Container.get(GlobalConfig);
+			ensureFerricStoreCacheConfig(globalConfig);
 			globalConfig.cache.backend = backend;
+			globalConfig.queue.backend = 'bull';
 			cacheService = new CacheService(globalConfig);
 			await cacheService.init();
 		});
 
 		afterEach(async () => {
 			await cacheService.reset();
+			ferricStoreMock.reset();
 			config.load(config.default);
+			ensureFerricStoreCacheConfig(globalConfig);
 		});
 
 		describe('init', () => {
 			test('should select backend based on config', () => {
 				expect(cacheService.isMemory()).toBe(backend === 'memory');
 				expect(cacheService.isRedis()).toBe(backend === 'redis');
+				expect(cacheService.isFerricStore()).toBe(backend === 'ferricstore');
 			});
 
 			if (backend === 'redis') {
@@ -50,6 +182,20 @@ for (const backend of ['memory', 'redis'] as const) {
 						await cacheService.init();
 
 						expect(cacheService.isRedis()).toBe(true);
+					});
+				});
+			}
+
+			if (backend === 'ferricstore') {
+				describe('when backend is ferricstore', () => {
+					test('with auto backend and queue mode using FerricFlow, should select ferricstore', async () => {
+						globalConfig.cache.backend = 'auto';
+						globalConfig.executions.mode = 'queue';
+						globalConfig.queue.backend = 'ferricflow';
+
+						await cacheService.init();
+
+						expect(cacheService.isFerricStore()).toBe(true);
 					});
 				});
 			}
@@ -169,8 +315,8 @@ for (const backend of ['memory', 'redis'] as const) {
 				expect(refreshFn).not.toHaveBeenCalled();
 			});
 
-			if (backend === 'redis') {
-				describe('when backend is redis', () => {
+			if (backend !== 'memory') {
+				describe('when backend is external', () => {
 					test('should treat empty array placeholder as cache miss when key is missing', async () => {
 						const refreshFn = createRefreshFn();
 
@@ -253,8 +399,8 @@ for (const backend of ['memory', 'redis'] as const) {
 				expect(refreshFn).not.toHaveBeenCalled();
 			});
 
-			if (backend === 'redis') {
-				describe('when backend is redis', () => {
+			if (backend !== 'memory') {
+				describe('when backend is external', () => {
 					test('should treat empty hash placeholder as cache miss when key is missing', async () => {
 						const refreshFn = createHashRefreshFn();
 						await expect(cacheService.getHash('testHash', { refreshFn })).resolves.toEqual({

@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { Config, Env, Nested } from '../decorators';
 
-const cacheBackendSchema = z.enum(['memory', 'redis', 'auto']);
+const cacheBackendSchema = z.enum(['memory', 'redis', 'ferricstore', 'auto']);
 type CacheBackend = z.infer<typeof cacheBackendSchema>;
 
 @Config
@@ -29,8 +29,19 @@ class RedisConfig {
 }
 
 @Config
+class FerricStoreConfig {
+	/** Key prefix for cache entries stored in FerricStore. */
+	@Env('N8N_CACHE_FERRICSTORE_KEY_PREFIX')
+	prefix: string = 'cache';
+
+	/** Time to live in milliseconds for FerricStore cache entries. Set to 0 to disable expiry. Default: 1 hour. */
+	@Env('N8N_CACHE_FERRICSTORE_TTL')
+	ttl: number = 1 * Time.hours.toMilliseconds;
+}
+
+@Config
 export class CacheConfig {
-	/** Cache backend: `memory`, `redis`, or `auto` (choose based on deployment). */
+	/** Cache backend: `memory`, `redis`, `ferricstore`, or `auto` (choose based on deployment). */
 	@Env('N8N_CACHE_BACKEND', cacheBackendSchema)
 	backend: CacheBackend = 'auto';
 
@@ -39,4 +50,7 @@ export class CacheConfig {
 
 	@Nested
 	redis: RedisConfig;
+
+	@Nested
+	ferricstore: FerricStoreConfig;
 }

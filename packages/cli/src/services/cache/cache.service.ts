@@ -8,6 +8,7 @@ import { jsonStringify, UserError } from 'n8n-workflow';
 import { UncacheableValueError } from '@/errors/cache-errors/uncacheable-value.error';
 import { REDIS_TTL_KEY_MISSING } from '@/services/cache/cache.constants';
 import type {
+	TaggedFerricStoreCache,
 	TaggedRedisCache,
 	TaggedMemoryCache,
 	MaybeHash,
@@ -21,19 +22,29 @@ type CacheEvents = {
 	'metrics.cache.update': never;
 };
 
+type ExternalCache = TaggedRedisCache | TaggedFerricStoreCache;
+type ExternalCacheStore = ExternalCache['store'];
+
 @Service()
 export class CacheService extends TypedEmitter<CacheEvents> {
 	constructor(private readonly globalConfig: GlobalConfig) {
 		super();
 	}
 
-	private cache: TaggedRedisCache | TaggedMemoryCache;
+	private cache: TaggedRedisCache | TaggedFerricStoreCache | TaggedMemoryCache;
 
 	async init() {
 		const { backend } = this.globalConfig.cache;
 		const { mode } = this.globalConfig.executions;
+		const scalingBackend = this.globalConfig.queue.backend;
 
-		const useRedis = backend === 'redis' || (backend === 'auto' && mode === 'queue');
+		const useRedis =
+			backend === 'redis' ||
+			(backend === 'auto' && mode === 'queue' && scalingBackend !== 'ferricflow');
+
+		const useFerricStore =
+			backend === 'ferricstore' ||
+			(backend === 'auto' && mode === 'queue' && scalingBackend === 'ferricflow');
 
 		if (useRedis) {
 			const { RedisClientService } = await import('../redis-client.service');
@@ -64,6 +75,27 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 			return;
 		}
 
+		if (useFerricStore) {
+			const { createFerricStoreClient } = await import('@/scaling/ferricflow/ferricstore-sdk');
+			const { ferricStoreUsingClient } = await import('@/services/cache/ferricstore.cache-manager');
+			const prefixBase = this.globalConfig.queue.ferricflow.prefix;
+			const cachePrefix = this.globalConfig.cache.ferricstore.prefix;
+			const ferricClient = await createFerricStoreClient(
+				this.globalConfig.queue.ferricflow.sdkPath,
+				this.globalConfig.queue.ferricflow.url,
+				'n8n-ferricstore-cache',
+			);
+			const ferricStore = ferricStoreUsingClient(ferricClient, {
+				keyPrefix: `${prefixBase}:${cachePrefix}:`,
+				ttl: this.globalConfig.cache.ferricstore.ttl,
+			});
+			const ferricCache = await caching(ferricStore);
+
+			this.cache = { ...ferricCache, kind: 'ferricstore' };
+
+			return;
+		}
+
 		const { maxSize, ttl } = this.globalConfig.cache.memory;
 
 		const sizeCalculation = (item: unknown) => {
@@ -82,6 +114,10 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 
 	isRedis() {
 		return this.cache.kind === 'redis';
+	}
+
+	isFerricStore() {
+		return this.cache.kind === 'ferricstore';
 	}
 
 	isMemory() {
@@ -105,7 +141,7 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 
 		if (!key || value === undefined || value === null) return;
 
-		if (this.cache.kind === 'redis' && !this.cache.store.isCacheable(value)) {
+		if (this.isExternalStore() && !this.externalStore().isCacheable(value)) {
 			throw new UncacheableValueError(key);
 		}
 
@@ -121,9 +157,10 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 			([key, value]) => key?.length > 0 && value !== undefined && value !== null,
 		);
 
-		if (this.cache.kind === 'redis') {
+		if (this.isExternalStore()) {
+			const externalStore = this.externalStore();
 			for (const [key, value] of truthyKeysValues) {
-				if (!this.cache.store.isCacheable(value)) {
+				if (!externalStore.isCacheable(value)) {
 					throw new UncacheableValueError(key);
 				}
 			}
@@ -145,8 +182,8 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 			if (hash[hashKey] === undefined || hash[hashKey] === null) return;
 		}
 
-		if (this.cache.kind === 'redis') {
-			await this.cache.store.hset(key, hash);
+		if (this.isExternalStore()) {
+			await this.externalStore().hset(key, hash);
 			return;
 		}
 
@@ -166,7 +203,7 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 			throw new UserError('Method `expire` not yet implemented for in-memory cache');
 		}
 
-		await this.cache.store.expire(key, ttlMs * Time.milliseconds.toSeconds);
+		await this.externalStore().expire(key, ttlMs * Time.milliseconds.toSeconds);
 	}
 
 	// ----------------------------------
@@ -224,8 +261,9 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 	) {
 		if (!this.cache) await this.init();
 
-		const hash: MaybeHash<T> =
-			this.cache.kind === 'redis' ? await this.cache.store.hgetall(key) : await this.get(key);
+		const hash: MaybeHash<T> = this.isExternalStore()
+			? await this.externalStore().hgetall(key)
+			: await this.get(key);
 
 		const cacheHit = await this.isAValidCacheHit(key, hash);
 		if (cacheHit) {
@@ -265,8 +303,8 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 
 		let hashValue: MaybeHash<T>;
 
-		if (this.cache.kind === 'redis') {
-			hashValue = await this.cache.store.hget(cacheKey, hashKey);
+		if (this.isExternalStore()) {
+			hashValue = await this.externalStore().hget(cacheKey, hashKey);
 		} else {
 			const hashObject = await this.cache.store.get<Hash<T>>(cacheKey);
 
@@ -322,8 +360,8 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 
 		if (!cacheKey || !hashKey) return;
 
-		if (this.cache.kind === 'redis') {
-			await this.cache.store.hdel(cacheKey, hashKey);
+		if (this.isExternalStore()) {
+			await this.externalStore().hdel(cacheKey, hashKey);
 			return;
 		}
 
@@ -353,11 +391,19 @@ export class CacheService extends TypedEmitter<CacheEvents> {
 	}
 
 	private async doesRedisKeyExist(key: string): Promise<boolean> {
-		if (this.isRedis()) {
-			const ttl = await this.cache.store.ttl(key);
+		if (this.isExternalStore()) {
+			const ttl = await this.externalStore().ttl(key);
 			return ttl !== REDIS_TTL_KEY_MISSING;
 		}
 
 		return true;
+	}
+
+	private isExternalStore() {
+		return this.cache.kind === 'redis' || this.cache.kind === 'ferricstore';
+	}
+
+	private externalStore() {
+		return this.cache.store as ExternalCacheStore;
 	}
 }

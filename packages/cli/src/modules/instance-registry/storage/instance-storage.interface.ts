@@ -2,11 +2,11 @@ import type { InstanceRegistration } from '@n8n/api-types';
 
 /**
  * Storage abstraction for instance registrations
- * Implementations: RedisInstanceStorage, MemoryInstanceStorage
+ * Implementations: RedisInstanceStorage, FerricStoreInstanceStorage, MemoryInstanceStorage
  */
 export interface InstanceStorage {
 	/** Tagged union discriminator for runtime type checking */
-	kind: 'redis' | 'memory';
+	kind: 'redis' | 'ferricstore' | 'memory';
 
 	/**
 	 * Register a new instance on startup

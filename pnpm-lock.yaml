@@ -96,6 +96,9 @@ catalogs:
     '@daytona/sdk':
       specifier: 0.187.0
       version: 0.187.0
+    '@ferricstore/ferricstore':
+      specifier: 0.1.4
+      version: 0.1.4
     '@iconify-json/lucide':
       specifier: ^1.2.112
       version: 1.2.114
@@ -3687,6 +3690,9 @@ importers:
       '@daytona/sdk':
         specifier: 'catalog:'
         version: 0.187.0(ws@8.21.0(bufferutil@4.0.9)(utf-8-validate@5.0.10))
+      '@ferricstore/ferricstore':
+        specifier: 'catalog:'
+        version: 0.1.4
       '@google-cloud/secret-manager':
         specifier: 5.6.0
         version: 5.6.0(encoding@0.1.13)
@@ -8150,6 +8156,10 @@ packages:
   '@faker-js/faker@8.4.1':
     resolution: {integrity: sha512-XQ3cU+Q8Uqmrbf2e0cIC/QN43sTBSC8KF12u29Mb47tWrt2hAgBXSgpZMj4Ao8Uk0iJcU99QsOCaIL8934obCg==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0, npm: '>=6.14.13'}
+
+  '@ferricstore/ferricstore@0.1.4':
+    resolution: {integrity: sha512-s6JpaTus6C+4R2wrI6wHnsR+5TMyCeFU8dWPFMO7k1C1pLe/U84rpwUIBhiYDAPgIbKTIm0yegFMgHbAHMFH6w==}
+    engines: {node: '>=22.22'}
 
   '@floating-ui/core@1.7.0':
     resolution: {integrity: sha512-FRdBLykrPPA6P76GGGqlex/e7fbe0F1ykgxHYNXQsH/iTEtjMj/f9bpY5oQqbjt5VgZvgz/uKXbGuROijh3VLA==}
@@ -24875,6 +24885,8 @@ snapshots:
   '@exodus/schemasafe@1.3.0': {}
 
   '@faker-js/faker@8.4.1': {}
+
+  '@ferricstore/ferricstore@0.1.4': {}
 
   '@floating-ui/core@1.7.0':
     dependencies:

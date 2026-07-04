@@ -1,5 +1,4 @@
 import type { RunningJobSummary } from '@n8n/api-types';
-import type Bull from 'bull';
 import type {
 	ExecutionError,
 	ExecutionStatus,
@@ -9,11 +8,46 @@ import type {
 } from 'n8n-workflow';
 import type PCancelable from 'p-cancelable';
 
-export type JobQueue = Bull.Queue<JobData>;
+export type JobId = string | number;
 
-export type Job = Bull.Job<JobData>;
+export type JobStatus =
+	| 'completed'
+	| 'waiting'
+	| 'active'
+	| 'delayed'
+	| 'failed'
+	| 'paused'
+	| 'stuck';
 
-export type JobId = Job['id'];
+export type JobOptions = {
+	priority?: number;
+	removeOnComplete?: number | boolean;
+	removeOnFail?: number | boolean;
+};
+
+export type JobQueue = {
+	client: {
+		ping(): Promise<unknown>;
+	};
+	process(name: string, concurrency: number, handler: (job: Job) => Promise<void>): void;
+	add(name: string, data: JobData, options: JobOptions): Promise<Job>;
+	getJob(jobId: JobId): Promise<Job | null>;
+	getJobs(statuses: JobStatus[]): Promise<Array<Job | null>>;
+	getJobCounts(): Promise<{ active: number; waiting: number }>;
+	pause(isLocal?: boolean, doNotWaitActive?: boolean): Promise<void>;
+	on(event: string, listener: (...args: unknown[]) => void): JobQueue;
+};
+
+export type Job = {
+	id: JobId;
+	data: JobData;
+	progress(message: JobMessage): Promise<void>;
+	finished(): Promise<unknown>;
+	isActive(): Promise<boolean>;
+	remove(): Promise<void>;
+	discard?: () => void;
+	moveToFailed?: (...args: unknown[]) => Promise<void>;
+};
 
 export type JobData = {
 	workflowId: string;
@@ -49,10 +83,6 @@ export type JobData = {
 export type JobResult = {
 	success: boolean;
 };
-
-export type JobStatus = Bull.JobStatus;
-
-export type JobOptions = Bull.JobOptions;
 
 /**
  * Message sent by main to worker and vice versa about a job. `JobMessage` is

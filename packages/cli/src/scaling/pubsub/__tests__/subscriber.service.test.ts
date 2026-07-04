@@ -18,7 +18,10 @@ describe('Subscriber', () => {
 	const client = mock<SingleNodeClient>();
 	const redisClientService = mock<RedisClientService>({ createClient: () => client });
 	const executionsConfig = mockInstance(ExecutionsConfig, { mode: 'queue' });
-	const globalConfig = mockInstance(GlobalConfig, { redis: { prefix: 'n8n' } });
+	const globalConfig = mockInstance(GlobalConfig, {
+		queue: { backend: 'bull' },
+		redis: { prefix: 'n8n' },
+	});
 
 	describe('constructor', () => {
 		it('should init Redis client in scaling mode', () => {
@@ -84,7 +87,10 @@ describe('Subscriber', () => {
 
 	describe('prefix isolation', () => {
 		it('should apply configured prefix when subscribing to channels', async () => {
-			const customConfig = mockInstance(GlobalConfig, { redis: { prefix: 'n8n-instance-1' } });
+			const customConfig = mockInstance(GlobalConfig, {
+				queue: { backend: 'bull' },
+				redis: { prefix: 'n8n-instance-1' },
+			});
 			const subscriber = new Subscriber(
 				mock(),
 				mock(),

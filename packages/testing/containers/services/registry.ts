@@ -1,5 +1,6 @@
 import { cadvisor } from './cadvisor';
 import { cloudflared } from './cloudflared';
+import { ferricstore } from './ferricstore';
 import { gitea, createGiteaHelper } from './gitea';
 import { kafka, createKafkaHelper } from './kafka';
 import { kent, createKentHelper } from './kent';
@@ -26,6 +27,7 @@ import { victoriaMetrics } from './victoria-metrics';
 export const services: Record<ServiceName, Service<ServiceResult>> = {
 	postgres,
 	redis,
+	ferricstore,
 	mailpit,
 	gitea,
 	keycloak,

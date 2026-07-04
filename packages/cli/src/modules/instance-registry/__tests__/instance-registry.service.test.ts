@@ -1,6 +1,6 @@
 import type { InstanceRegistration } from '@n8n/api-types';
 import type { Logger } from '@n8n/backend-common';
-import type { ExecutionsConfig } from '@n8n/config';
+import type { ExecutionsConfig, GlobalConfig } from '@n8n/config';
 import { Container } from '@n8n/di';
 import type { InstanceSettings } from 'n8n-core';
 import { mock } from 'vitest-mock-extended';
@@ -71,6 +71,9 @@ const makeInstanceSettings = (overrides: Partial<InstanceSettings> = {}) =>
 const makeExecutionsConfig = (mode: 'regular' | 'queue' = 'regular') =>
 	mock<ExecutionsConfig>({ mode });
 
+const makeGlobalConfig = (backend: 'bull' | 'ferricflow' = 'bull') =>
+	mock<GlobalConfig>({ queue: { backend } });
+
 const makeLogger = () => {
 	const logger = mock<Logger>();
 	logger.scoped.mockReturnValue(logger);
@@ -103,6 +106,7 @@ describe('InstanceRegistryService', () => {
 		new InstanceRegistryService(
 			makeInstanceSettings(settingsOverrides),
 			makeExecutionsConfig(executionMode),
+			makeGlobalConfig(),
 			logger,
 		);
 
@@ -281,7 +285,12 @@ describe('InstanceRegistryService', () => {
 
 		it('should reflect instanceRole changes in heartbeat', async () => {
 			const settings = makeInstanceSettings({ instanceRole: 'unset' });
-			service = new InstanceRegistryService(settings, makeExecutionsConfig(), logger);
+			service = new InstanceRegistryService(
+				settings,
+				makeExecutionsConfig(),
+				makeGlobalConfig(),
+				logger,
+			);
 			await service.init();
 
 			// Simulate role change (e.g., leader election completed)

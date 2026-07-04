@@ -48,7 +48,11 @@ export const taskRunner: Service<TaskRunnerResult> = {
 					N8N_RUNNERS_MAX_CONCURRENCY: '5',
 					N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT: '0', // Disabled in tests to prevent cold-start delays
 				})
-				.withWaitStrategy(Wait.forListeningPorts())
+				.withWaitStrategy(
+					Wait.forLogMessage(
+						/Starting launcher's health check server at port 5680/,
+					).withStartupTimeout(60_000),
+				)
 				.withLabels({
 					'com.docker.compose.project': projectName,
 					'com.docker.compose.service': 'task-runner',

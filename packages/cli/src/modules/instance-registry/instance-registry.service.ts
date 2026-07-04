@@ -1,6 +1,6 @@
 import type { InstanceRegistration } from '@n8n/api-types';
 import { Logger } from '@n8n/backend-common';
-import { ExecutionsConfig } from '@n8n/config';
+import { ExecutionsConfig, GlobalConfig } from '@n8n/config';
 import { Service } from '@n8n/di';
 import { InstanceSettings } from 'n8n-core';
 import { randomUUID } from 'node:crypto';
@@ -29,6 +29,7 @@ export class InstanceRegistryService {
 	constructor(
 		private readonly instanceSettings: InstanceSettings,
 		private readonly executionsConfig: ExecutionsConfig,
+		private readonly globalConfig: GlobalConfig,
 		private readonly logger: Logger,
 	) {
 		this.logger = this.logger.scoped('instance-registry');
@@ -89,7 +90,7 @@ export class InstanceRegistryService {
 		return await this.storage.cleanupStaleMembers();
 	}
 
-	get storageBackend(): 'redis' | 'memory' {
+	get storageBackend(): 'redis' | 'ferricstore' | 'memory' {
 		return this.storage.kind;
 	}
 
@@ -107,6 +108,16 @@ export class InstanceRegistryService {
 	}
 
 	private async selectStorage(): Promise<InstanceStorage> {
+		const useFerricStore =
+			this.globalConfig.queue.backend === 'ferricflow' &&
+			(this.instanceSettings.isMultiMain || this.executionsConfig.mode === 'queue');
+
+		if (useFerricStore) {
+			const { FerricStoreInstanceStorage } = await import('./storage/ferricstore-instance-storage');
+			const { Container } = await import('@n8n/di');
+			return Container.get(FerricStoreInstanceStorage);
+		}
+
 		const useRedis = this.instanceSettings.isMultiMain || this.executionsConfig.mode === 'queue';
 
 		if (useRedis) {

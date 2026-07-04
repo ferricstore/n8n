@@ -143,11 +143,11 @@ export class WorkerServer {
 
 	private async readiness(_req: express.Request, res: express.Response) {
 		const { connectionState } = this.dbConnection;
+		const queueBackendReady =
+			(this.globalConfig.queue?.backend ?? 'ferricflow') === 'ferricflow' ||
+			this.redisClientService.isConnected();
 		const isReady =
-			connectionState.connected &&
-			connectionState.migrated &&
-			this.redisClientService.isConnected() &&
-			this.fullyReady;
+			connectionState.connected && connectionState.migrated && queueBackendReady && this.fullyReady;
 
 		return isReady
 			? res.status(200).send({ status: 'ok' })

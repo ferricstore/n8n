@@ -14,9 +14,13 @@ export interface RedisMeta {
 
 export type RedisResult = ServiceResult<RedisMeta>;
 
+function scalingBackend(ctx: Parameters<NonNullable<Service['shouldStart']>>[0]) {
+	return ctx.config.env?.N8N_SCALING_BACKEND ?? process.env.N8N_SCALING_BACKEND ?? 'ferricflow';
+}
+
 export const redis: Service<RedisResult> = {
 	description: 'Redis',
-	shouldStart: (ctx) => ctx.isQueueMode,
+	shouldStart: (ctx) => ctx.isQueueMode && scalingBackend(ctx) !== 'ferricflow',
 
 	async start(network: StartedNetwork, projectName: string): Promise<RedisResult> {
 		const { consumer, throwWithLogs } = createSilentLogConsumer();

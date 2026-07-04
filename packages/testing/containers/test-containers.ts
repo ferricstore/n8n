@@ -24,6 +24,7 @@
 const DEFAULT_IMAGES = {
 	postgres: 'postgres:18-alpine',
 	redis: 'redis:alpine',
+	ferricstore: 'ghcr.io/ferricstore/ferricstore:0.5.7',
 	caddy: 'caddy:alpine',
 	n8n: 'n8nio/n8n:local',
 	taskRunner: 'n8nio/runners:local',
@@ -105,6 +106,7 @@ function getImage<K extends keyof typeof DEFAULT_IMAGES>(key: K): string {
 export const TEST_CONTAINER_IMAGES = {
 	postgres: getImage('postgres'),
 	redis: getImage('redis'),
+	ferricstore: getImage('ferricstore'),
 	caddy: getImage('caddy'),
 	n8n: getImage('n8n'),
 	taskRunner: getImage('taskRunner'),

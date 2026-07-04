@@ -158,6 +158,26 @@ interface ContainerStartResult {
 	getLastReadinessBody: () => string | null;
 }
 
+async function waitForMainStartupComplete(
+	instanceName: string,
+	getLogs: () => string,
+	timeoutMs = N8N_STARTUP_TIMEOUT_MS,
+) {
+	const deadline = Date.now() + timeoutMs;
+
+	while (Date.now() < deadline) {
+		if (getLogs().includes('Editor is now accessible via:')) return;
+		await new Promise((resolve) => setTimeout(resolve, N8N_READ_TIMEOUT_MS));
+	}
+
+	const logs = getLogs();
+	throw new Error(
+		`Timed out waiting for ${instanceName} to finish startup after HTTP readiness. Last logs:\n${logs.slice(
+			-4000,
+		)}`,
+	);
+}
+
 const SERVICE_LABEL: Record<InstanceRole, string> = {
 	main: 'n8n-main',
 	webhook: 'n8n-webhook',
@@ -369,6 +389,9 @@ export async function createN8NInstances(
 	}
 	recordSuccess(main1, main1Result);
 	containers.push(main1Result.container);
+	if (main1.role === 'main') {
+		await waitForMainStartupComplete(main1.name, main1Result.getLogs);
+	}
 	log('main 1 ready');
 
 	if (remaining.length > 0) {

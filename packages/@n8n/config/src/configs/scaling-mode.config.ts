@@ -1,4 +1,5 @@
 import { Time } from '@n8n/constants';
+import z from 'zod';
 
 import { Config, Env, Nested } from '../decorators';
 
@@ -144,11 +145,57 @@ class BullConfig {
 	settings: SettingsConfig;
 }
 
+const scalingBackendSchema = z.enum(['bull', 'ferricflow']);
+
+export type ScalingBackend = z.infer<typeof scalingBackendSchema>;
+
+@Config
+class FerricFlowConfig {
+	/** FerricStore native protocol URL used when `N8N_SCALING_BACKEND=ferricflow`. */
+	@Env('N8N_FERRICFLOW_URL')
+	url: string = 'ferric://127.0.0.1:6388';
+
+	/** Key/partition prefix for FerricFlow and FerricStore-backed n8n state. */
+	@Env('N8N_FERRICFLOW_PREFIX')
+	prefix: string = 'n8n';
+
+	/** Flow type used for n8n execution jobs. */
+	@Env('N8N_FERRICFLOW_TYPE')
+	type: string = 'n8n_execution';
+
+	/** Queue state used before a worker claims the execution. */
+	@Env('N8N_FERRICFLOW_QUEUED_STATE')
+	queuedState: string = 'queued';
+
+	/** Worker claim lease in milliseconds. */
+	@Env('N8N_FERRICFLOW_LEASE_MS')
+	leaseMs: number = 60 * Time.seconds.toMilliseconds;
+
+	/** Initial idle polling delay in milliseconds for FerricFlow workers. */
+	@Env('N8N_FERRICFLOW_POLL_INTERVAL_MS')
+	pollIntervalMs: number = 250;
+
+	/** Maximum idle polling delay in milliseconds for FerricFlow workers. */
+	@Env('N8N_FERRICFLOW_MAX_POLL_INTERVAL_MS')
+	maxPollIntervalMs: number = 5 * Time.seconds.toMilliseconds;
+
+	/** Optional ESM SDK path. Defaults to package import, then local sibling checkout fallback. */
+	@Env('N8N_FERRICFLOW_SDK_PATH')
+	sdkPath: string = '';
+}
+
 @Config
 export class ScalingModeConfig {
+	/** Backend used for queue/scaling-mode execution jobs. */
+	@Env('N8N_SCALING_BACKEND', scalingBackendSchema)
+	backend: ScalingBackend = 'ferricflow';
+
 	@Nested
 	health: HealthConfig;
 
 	@Nested
 	bull: BullConfig;
+
+	@Nested
+	ferricflow: FerricFlowConfig;
 }

@@ -1,0 +1,43 @@
+name: 'Test: E2E FerricFlow'
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Git ref to test'
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/test-e2e-ferricflow.yml'
+      - 'packages/@n8n/config/src/configs/scaling-mode.config.ts'
+      - 'packages/cli/src/scaling/**'
+      - 'packages/cli/src/commands/base-command.ts'
+      - 'packages/cli/src/modules/instance-registry/**'
+      - 'packages/cli/src/services/cache/cache.service.ts'
+      - 'packages/testing/containers/**'
+      - 'packages/testing/playwright/tests/e2e/scaling/ferricflow.spec.ts'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+
+jobs:
+  prepare-docker:
+    name: Prepare Docker
+    uses: ./.github/workflows/prepare-docker-reusable.yml
+    with:
+      branch: ${{ inputs.branch || github.ref }}
+    secrets: inherit
+
+  ferricflow-e2e:
+    name: FerricFlow Queue E2E
+    needs: prepare-docker
+    uses: ./.github/workflows/test-e2e-reusable.yml
+    with:
+      branch: ${{ inputs.branch || github.ref }}
+      test-mode: docker-artifact
+      test-command: pnpm --filter=n8n-playwright exec playwright test --project=queue:e2e tests/e2e/scaling/ferricflow.spec.ts
+      workers: '1'
+      pre-generated-matrix: '[{"shard":1,"images":"postgres ferricstore"}]'
+      n8n-env: '{"N8N_SCALING_BACKEND":"ferricflow","N8N_CACHE_BACKEND":"ferricstore"}'
+      artifact-prefix: ferricflow-e2e
+    secrets: inherit

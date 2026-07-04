@@ -6,7 +6,13 @@ import { OnShutdown } from '@n8n/decorators';
 import { Service } from '@n8n/di';
 import type { Cluster, Redis } from 'ioredis';
 import { InstanceSettings } from 'n8n-core';
+import { jsonParse, jsonStringify } from 'n8n-workflow';
 
+import {
+	createFerricStoreClient,
+	responseText,
+	type FerricStoreClient,
+} from '@/scaling/ferricflow/ferricstore-sdk';
 import { RedisClientService } from '@/services/redis-client.service';
 
 import type { NonStreamingResponseMode } from './chat-hub.types';
@@ -43,16 +49,18 @@ export interface ChatHubExecutionContext {
  * This enables the event-driven architecture where the watcher service can handle
  * execution completion via lifecycle events.
  *
- * Uses in-memory storage for single-main mode and Redis for multi-main/queue mode.
+ * Uses in-memory storage for single-main mode and a shared backend for multi-main/queue mode.
  */
 @Service()
 export class ChatHubExecutionStore {
 	private readonly memoryStore = new Map<string, ChatHubExecutionContext>();
 	private readonly cleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+	private readonly useFerricStore: boolean;
 	private readonly useRedis: boolean;
 	private readonly redisPrefix: string;
 	private readonly cleanupDelayMs: number;
+	private ferricStoreClient: Promise<FerricStoreClient> | null = null;
 	private redisClient: Redis | Cluster | null = null;
 
 	constructor(
@@ -64,11 +72,20 @@ export class ChatHubExecutionStore {
 		private readonly redisClientService: RedisClientService,
 	) {
 		this.logger = this.logger.scoped('chat-hub');
-		this.useRedis = this.instanceSettings.isMultiMain || this.executionsConfig.mode === 'queue';
+		const useSharedStorage =
+			this.instanceSettings.isMultiMain || this.executionsConfig.mode === 'queue';
+		this.useFerricStore = useSharedStorage && this.globalConfig.queue?.backend === 'ferricflow';
+		this.useRedis = useSharedStorage && !this.useFerricStore;
 		this.redisPrefix = `${this.globalConfig.redis.prefix}:chat-hub:exec:`;
 		this.cleanupDelayMs = this.chatHubConfig.executionContextTtl * Time.seconds.toMilliseconds;
 
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			this.ferricStoreClient = createFerricStoreClient(
+				this.globalConfig.queue.ferricflow.sdkPath,
+				this.globalConfig.queue.ferricflow.url,
+				'n8n-ferricflow-chat-hub-executions',
+			);
+		} else if (this.useRedis) {
 			this.redisClient = this.redisClientService.createClient({ type: 'subscriber(n8n)' });
 		}
 	}
@@ -79,7 +96,9 @@ export class ChatHubExecutionStore {
 	async register(context: ChatHubExecutionContext): Promise<void> {
 		const { executionId } = context;
 
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			await this.setFerricStoreContext(executionId, context);
+		} else if (this.useRedis) {
 			await this.setRedisContext(executionId, context);
 		} else {
 			this.memoryStore.set(executionId, context);
@@ -91,6 +110,9 @@ export class ChatHubExecutionStore {
 	 * Get execution context by execution ID
 	 */
 	async get(executionId: string): Promise<ChatHubExecutionContext | null> {
+		if (this.useFerricStore) {
+			return await this.getFerricStoreContext(executionId);
+		}
 		if (this.useRedis) {
 			return await this.getRedisContext(executionId);
 		}
@@ -112,7 +134,9 @@ export class ChatHubExecutionStore {
 
 		const updatedContext = { ...context, ...updates };
 
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			await this.setFerricStoreContext(executionId, updatedContext);
+		} else if (this.useRedis) {
 			await this.setRedisContext(executionId, updatedContext);
 		} else {
 			this.memoryStore.set(executionId, updatedContext);
@@ -125,7 +149,9 @@ export class ChatHubExecutionStore {
 	 * Remove an execution context
 	 */
 	async remove(executionId: string): Promise<void> {
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			await this.deleteFerricStoreContext(executionId);
+		} else if (this.useRedis) {
 			await this.deleteRedisContext(executionId);
 		} else {
 			this.memoryStore.delete(executionId);
@@ -149,10 +175,72 @@ export class ChatHubExecutionStore {
 		if (this.redisClient) {
 			this.redisClient.disconnect();
 		}
+		if (this.ferricStoreClient) {
+			void this.ferricStoreClient
+				.then(async (client) => await client.close())
+				.catch((error) => {
+					this.logger.warn('Failed to close FerricStore chat hub execution store client', {
+						error,
+					});
+				});
+		}
 	}
 
 	private getContextKey(executionId: string): string {
 		return `${this.redisPrefix}${executionId}`;
+	}
+
+	private async getFerricStoreContext(
+		executionId: string,
+	): Promise<ChatHubExecutionContext | null> {
+		if (!this.ferricStoreClient) return null;
+
+		try {
+			const data = await (await this.ferricStoreClient).command(
+				'GET',
+				this.getContextKey(executionId),
+			);
+			if (data == null) return null;
+			return jsonParse<ChatHubExecutionContext>(responseText(data));
+		} catch (error) {
+			this.logger.error(`Failed to get FerricStore context for execution ${executionId}`, {
+				error,
+			});
+			return null;
+		}
+	}
+
+	private async setFerricStoreContext(
+		executionId: string,
+		context: ChatHubExecutionContext,
+	): Promise<void> {
+		if (!this.ferricStoreClient) return;
+
+		try {
+			await (await this.ferricStoreClient).command(
+				'SET',
+				this.getContextKey(executionId),
+				jsonStringify(context),
+				'EX',
+				this.chatHubConfig.executionContextTtl,
+			);
+		} catch (error) {
+			this.logger.error(`Failed to set FerricStore context for execution ${executionId}`, {
+				error,
+			});
+		}
+	}
+
+	private async deleteFerricStoreContext(executionId: string): Promise<void> {
+		if (!this.ferricStoreClient) return;
+
+		try {
+			await (await this.ferricStoreClient).command('DEL', this.getContextKey(executionId));
+		} catch (error) {
+			this.logger.error(`Failed to delete FerricStore context for execution ${executionId}`, {
+				error,
+			});
+		}
 	}
 
 	private async getRedisContext(executionId: string): Promise<ChatHubExecutionContext | null> {
@@ -161,7 +249,7 @@ export class ChatHubExecutionStore {
 		try {
 			const data = await this.redisClient.get(this.getContextKey(executionId));
 			if (!data) return null;
-			return JSON.parse(data) as ChatHubExecutionContext;
+			return jsonParse<ChatHubExecutionContext>(data);
 		} catch (error) {
 			this.logger.error(`Failed to get Redis context for execution ${executionId}`, { error });
 			return null;
@@ -177,7 +265,7 @@ export class ChatHubExecutionStore {
 		try {
 			await this.redisClient.set(
 				this.getContextKey(executionId),
-				JSON.stringify(context),
+				jsonStringify(context),
 				'EX',
 				this.chatHubConfig.executionContextTtl,
 			);

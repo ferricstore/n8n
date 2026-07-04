@@ -137,6 +137,7 @@ describe('Start - AuthRolesService initialization', () => {
 		// @ts-expect-error - Accessing protected property for testing
 		start.globalConfig = {
 			executions: { mode: 'regular' },
+			queue: { backend: 'bull' },
 			multiMainSetup: { enabled: false },
 			endpoints: { disableUi: true, metrics: { enable: false }, health: '/health' },
 			database: { type: 'sqlite' },
@@ -191,6 +192,7 @@ describe('Start - AuthRolesService initialization', () => {
 			// @ts-expect-error - Accessing protected property for testing
 			start.globalConfig = {
 				executions: { mode: 'queue' },
+				queue: { backend: 'bull' },
 				multiMainSetup: { enabled: true },
 				endpoints: { disableUi: true, metrics: { enable: false }, health: '/health' },
 				database: { type: 'sqlite' },
@@ -226,6 +228,7 @@ describe('Start - AuthRolesService initialization', () => {
 			// @ts-expect-error - Accessing protected property for testing
 			start.globalConfig = {
 				executions: { mode: 'queue' },
+				queue: { backend: 'bull' },
 				multiMainSetup: { enabled: true },
 				endpoints: { disableUi: true, metrics: { enable: false }, health: '/health' },
 				database: { type: 'sqlite' },
@@ -272,6 +275,7 @@ describe('Start - AuthRolesService initialization', () => {
 	describe('init - multi-main follower license retry', () => {
 		const multiMainConfig = {
 			executions: { mode: 'queue' as const },
+			queue: { backend: 'bull' as const },
 			multiMainSetup: { enabled: true },
 			endpoints: { disableUi: true, metrics: { enable: false }, health: '/health' },
 			database: { type: 'sqlite' },

@@ -6,7 +6,13 @@ import { OnShutdown } from '@n8n/decorators';
 import { Service } from '@n8n/di';
 import type { Cluster, Redis } from 'ioredis';
 import { InstanceSettings } from 'n8n-core';
+import { jsonParse, jsonStringify } from 'n8n-workflow';
 
+import {
+	createFerricStoreClient,
+	responseText,
+	type FerricStoreClient,
+} from '@/scaling/ferricflow/ferricstore-sdk';
 import { RedisClientService } from '@/services/redis-client.service';
 
 /**
@@ -52,7 +58,7 @@ export interface StartExecutionParams {
 
 /**
  * Service responsible for storing chat session state for reconnection support.
- * Uses in-memory storage for single-main mode and Redis for multi-main mode.
+ * Uses in-memory storage for single-main mode and a shared backend for multi-main/queue mode.
  */
 @Service()
 export class ChatStreamStateService {
@@ -60,9 +66,11 @@ export class ChatStreamStateService {
 	private readonly chunkBuffer = new Map<ChatSessionId, BufferedChunk[]>();
 	private readonly cleanupTimers = new Map<ChatSessionId, ReturnType<typeof setTimeout>>();
 
+	private readonly useFerricStore: boolean;
 	private readonly useRedis: boolean;
 	private readonly redisPrefix: string;
 	private readonly cleanupDelayMs: number;
+	private ferricStoreClient: Promise<FerricStoreClient> | null = null;
 	private redisClient: Redis | Cluster | null = null;
 
 	constructor(
@@ -74,11 +82,20 @@ export class ChatStreamStateService {
 		private readonly redisClientService: RedisClientService,
 	) {
 		this.logger = this.logger.scoped('chat-hub');
-		this.useRedis = this.instanceSettings.isMultiMain || this.executionsConfig.mode === 'queue';
+		const useSharedStorage =
+			this.instanceSettings.isMultiMain || this.executionsConfig.mode === 'queue';
+		this.useFerricStore = useSharedStorage && this.globalConfig.queue?.backend === 'ferricflow';
+		this.useRedis = useSharedStorage && !this.useFerricStore;
 		this.redisPrefix = `${this.globalConfig.redis.prefix}:chat-hub:stream:`;
 		this.cleanupDelayMs = this.chatHubConfig.streamStateTtl * Time.seconds.toMilliseconds;
 
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			this.ferricStoreClient = createFerricStoreClient(
+				this.globalConfig.queue.ferricflow.sdkPath,
+				this.globalConfig.queue.ferricflow.url,
+				'n8n-ferricflow-chat-hub-streams',
+			);
+		} else if (this.useRedis) {
 			this.redisClient = this.redisClientService.createClient({ type: 'subscriber(n8n)' });
 		}
 	}
@@ -97,7 +114,10 @@ export class ChatStreamStateService {
 			startedAt: Date.now(),
 		};
 
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			await this.setFerricStoreState(sessionId, state);
+			await this.setFerricStoreChunks(sessionId, []);
+		} else if (this.useRedis) {
 			await this.setRedisState(sessionId, state);
 			await this.setRedisChunks(sessionId, []);
 		} else {
@@ -113,7 +133,10 @@ export class ChatStreamStateService {
 	 * End an execution and clean up state
 	 */
 	async endExecution(sessionId: ChatSessionId): Promise<void> {
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			await this.deleteFerricStoreState(sessionId);
+			await this.deleteFerricStoreChunks(sessionId);
+		} else if (this.useRedis) {
 			await this.deleteRedisState(sessionId);
 			await this.deleteRedisChunks(sessionId);
 		} else {
@@ -129,7 +152,13 @@ export class ChatStreamStateService {
 	 * Set the current message ID being streamed
 	 */
 	async setCurrentMessage(sessionId: ChatSessionId, messageId: ChatMessageId): Promise<void> {
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			const state = await this.getFerricStoreState(sessionId);
+			if (state) {
+				state.messageId = messageId;
+				await this.setFerricStoreState(sessionId, state);
+			}
+		} else if (this.useRedis) {
 			const state = await this.getRedisState(sessionId);
 			if (state) {
 				state.messageId = messageId;
@@ -159,7 +188,10 @@ export class ChatStreamStateService {
 			startedAt: Date.now(),
 		};
 
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			await this.setFerricStoreState(sessionId, state);
+			await this.setFerricStoreChunks(sessionId, []);
+		} else if (this.useRedis) {
 			await this.setRedisState(sessionId, state);
 			await this.setRedisChunks(sessionId, []);
 		} else {
@@ -175,6 +207,9 @@ export class ChatStreamStateService {
 	 * Get the current stream state for a session
 	 */
 	async getStreamState(sessionId: ChatSessionId): Promise<StreamState | null> {
+		if (this.useFerricStore) {
+			return await this.getFerricStoreState(sessionId);
+		}
 		if (this.useRedis) {
 			return await this.getRedisState(sessionId);
 		}
@@ -185,6 +220,14 @@ export class ChatStreamStateService {
 	 * Increment and return the next sequence number
 	 */
 	async incrementSequence(sessionId: ChatSessionId): Promise<number> {
+		if (this.useFerricStore) {
+			const state = await this.getFerricStoreState(sessionId);
+			if (!state) return 0;
+			state.sequenceNumber += 1;
+			await this.setFerricStoreState(sessionId, state);
+			return state.sequenceNumber;
+		}
+
 		if (this.useRedis) {
 			const state = await this.getRedisState(sessionId);
 			if (!state) return 0;
@@ -203,7 +246,16 @@ export class ChatStreamStateService {
 	 * Buffer a chunk for reconnection replay
 	 */
 	async bufferChunk(sessionId: ChatSessionId, chunk: BufferedChunk): Promise<void> {
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			const chunks = await this.getFerricStoreChunks(sessionId);
+			chunks.push(chunk);
+
+			while (chunks.length > this.chatHubConfig.maxBufferedChunks) {
+				chunks.shift();
+			}
+
+			await this.setFerricStoreChunks(sessionId, chunks);
+		} else if (this.useRedis) {
 			const chunks = await this.getRedisChunks(sessionId);
 			chunks.push(chunk);
 
@@ -236,7 +288,9 @@ export class ChatStreamStateService {
 	): Promise<BufferedChunk[]> {
 		let chunks: BufferedChunk[];
 
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			chunks = await this.getFerricStoreChunks(sessionId);
+		} else if (this.useRedis) {
 			chunks = await this.getRedisChunks(sessionId);
 		} else {
 			chunks = this.chunkBuffer.get(sessionId) ?? [];
@@ -249,7 +303,10 @@ export class ChatStreamStateService {
 	 * End a stream and clean up state
 	 */
 	async endStream(sessionId: ChatSessionId): Promise<void> {
-		if (this.useRedis) {
+		if (this.useFerricStore) {
+			await this.deleteFerricStoreState(sessionId);
+			await this.deleteFerricStoreChunks(sessionId);
+		} else if (this.useRedis) {
 			await this.deleteRedisState(sessionId);
 			await this.deleteRedisChunks(sessionId);
 		} else {
@@ -278,6 +335,13 @@ export class ChatStreamStateService {
 		if (this.redisClient) {
 			this.redisClient.disconnect();
 		}
+		if (this.ferricStoreClient) {
+			void this.ferricStoreClient
+				.then(async (client) => await client.close())
+				.catch((error) => {
+					this.logger.warn('Failed to close FerricStore chat stream state client', { error });
+				});
+		}
 	}
 
 	private getStateKey(sessionId: ChatSessionId): string {
@@ -288,13 +352,97 @@ export class ChatStreamStateService {
 		return `${this.redisPrefix}chunks:${sessionId}`;
 	}
 
+	private async getFerricStoreState(sessionId: ChatSessionId): Promise<StreamState | null> {
+		if (!this.ferricStoreClient) return null;
+
+		try {
+			const data = await (await this.ferricStoreClient).command('GET', this.getStateKey(sessionId));
+			if (data == null) return null;
+			return jsonParse<StreamState>(responseText(data));
+		} catch (error) {
+			this.logger.warn(`Failed to get FerricStore state for session ${sessionId}`, { error });
+			return null;
+		}
+	}
+
+	private async setFerricStoreState(sessionId: ChatSessionId, state: StreamState): Promise<void> {
+		if (!this.ferricStoreClient) return;
+
+		try {
+			await (await this.ferricStoreClient).command(
+				'SET',
+				this.getStateKey(sessionId),
+				jsonStringify(state),
+				'EX',
+				this.chatHubConfig.streamStateTtl,
+			);
+		} catch (error) {
+			this.logger.error(`Failed to set FerricStore state for session ${sessionId}`, { error });
+		}
+	}
+
+	private async deleteFerricStoreState(sessionId: ChatSessionId): Promise<void> {
+		if (!this.ferricStoreClient) return;
+
+		try {
+			await (await this.ferricStoreClient).command('DEL', this.getStateKey(sessionId));
+		} catch (error) {
+			this.logger.error(`Failed to delete FerricStore state for session ${sessionId}`, { error });
+		}
+	}
+
+	private async getFerricStoreChunks(sessionId: ChatSessionId): Promise<BufferedChunk[]> {
+		if (!this.ferricStoreClient) return [];
+
+		try {
+			const data = await (await this.ferricStoreClient).command(
+				'GET',
+				this.getChunksKey(sessionId),
+			);
+			if (data == null) return [];
+			return jsonParse<BufferedChunk[]>(responseText(data));
+		} catch (error) {
+			this.logger.error(`Failed to get FerricStore chunks for session ${sessionId}`, { error });
+			return [];
+		}
+	}
+
+	private async setFerricStoreChunks(
+		sessionId: ChatSessionId,
+		chunks: BufferedChunk[],
+	): Promise<void> {
+		if (!this.ferricStoreClient) return;
+
+		try {
+			await (await this.ferricStoreClient).command(
+				'SET',
+				this.getChunksKey(sessionId),
+				jsonStringify(chunks),
+				'EX',
+				this.chatHubConfig.streamStateTtl,
+			);
+		} catch (error) {
+			this.logger.error(`Failed to set FerricStore chunks for session ${sessionId}`, { error });
+		}
+	}
+
+	private async deleteFerricStoreChunks(sessionId: ChatSessionId): Promise<void> {
+		if (!this.ferricStoreClient) return;
+
+		try {
+			await (await this.ferricStoreClient).command('DEL', this.getChunksKey(sessionId));
+		} catch (error) {
+			this.logger.error(`Failed to delete FerricStore chunks for session ${sessionId}`, { error });
+		}
+	}
+
 	private async getRedisState(sessionId: ChatSessionId): Promise<StreamState | null> {
 		if (!this.redisClient) return null;
 
 		try {
 			const data = await this.redisClient.get(this.getStateKey(sessionId));
 			if (!data) return null;
-			return JSON.parse(data) as StreamState;
+			return jsonParse<StreamState>(data);
 		} catch (error) {
 			this.logger.warn(`Failed to get Redis state for session ${sessionId}`, { error });
 			return null;
@@ -307,7 +455,7 @@ export class ChatStreamStateService {
 		try {
 			await this.redisClient.set(
 				this.getStateKey(sessionId),
-				JSON.stringify(state),
+				jsonStringify(state),
 				'EX',
 				this.chatHubConfig.streamStateTtl,
 			);
@@ -332,7 +480,7 @@ export class ChatStreamStateService {
 		try {
 			const data = await this.redisClient.get(this.getChunksKey(sessionId));
 			if (!data) return [];
-			return JSON.parse(data) as BufferedChunk[];
+			return jsonParse<BufferedChunk[]>(data);
 		} catch (error) {
 			this.logger.error(`Failed to get Redis chunks for session ${sessionId}`, { error });
 			return [];
@@ -345,7 +493,7 @@ export class ChatStreamStateService {
 		try {
 			await this.redisClient.set(
 				this.getChunksKey(sessionId),
-				JSON.stringify(chunks),
+				jsonStringify(chunks),
 				'EX',
 				this.chatHubConfig.streamStateTtl,
 			);

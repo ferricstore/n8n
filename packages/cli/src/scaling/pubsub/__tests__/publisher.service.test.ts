@@ -16,7 +16,10 @@ describe('Publisher', () => {
 	const instanceSettings = mock<InstanceSettings>({ hostId });
 	const redisClientService = mock<RedisClientService>({ createClient: () => client });
 	const executionsConfig = mockInstance(ExecutionsConfig, { mode: 'queue' });
-	const globalConfig = mockInstance(GlobalConfig, { redis: { prefix: 'n8n' } });
+	const globalConfig = mockInstance(GlobalConfig, {
+		queue: { backend: 'bull' },
+		redis: { prefix: 'n8n' },
+	});
 
 	describe('constructor', () => {
 		it('should init Redis client in scaling mode', () => {
@@ -226,7 +229,10 @@ describe('Publisher', () => {
 		});
 
 		it('should apply configured prefix to MCP relay channel', async () => {
-			const customConfig = mockInstance(GlobalConfig, { redis: { prefix: 'n8n-instance-1' } });
+			const customConfig = mockInstance(GlobalConfig, {
+				queue: { backend: 'bull' },
+				redis: { prefix: 'n8n-instance-1' },
+			});
 			const publisher = new Publisher(
 				logger,
 				redisClientService,
@@ -247,7 +253,10 @@ describe('Publisher', () => {
 
 	describe('prefix isolation', () => {
 		it('should apply configured prefix to both command and worker response channels', async () => {
-			const customConfig = mockInstance(GlobalConfig, { redis: { prefix: 'n8n-instance-1' } });
+			const customConfig = mockInstance(GlobalConfig, {
+				queue: { backend: 'bull' },
+				redis: { prefix: 'n8n-instance-1' },
+			});
 			const publisher = new Publisher(
 				logger,
 				redisClientService,

@@ -54,21 +54,25 @@ export class ScalingService {
 	// #region Lifecycle
 
 	async setupQueue() {
-		const { default: BullQueue } = await import('bull');
-		const { RedisClientService } = await import('@/services/redis-client.service');
-
 		if (this.queue) return;
 
-		const service = Container.get(RedisClientService);
+		if (this.scalingBackend === 'ferricflow') {
+			const { FerricFlowQueue } = await import('@/scaling/ferricflow/ferricflow-queue');
+			this.queue = await FerricFlowQueue.create(this.globalConfig, this.logger);
+		} else {
+			const { default: BullQueue } = await import('bull');
+			const { RedisClientService } = await import('@/services/redis-client.service');
+			const service = Container.get(RedisClientService);
 
-		const bullPrefix = this.globalConfig.queue.bull.prefix;
-		const prefix = service.toValidPrefix(bullPrefix);
+			const bullPrefix = this.globalConfig.queue.bull.prefix;
+			const prefix = service.toValidPrefix(bullPrefix);
 
-		this.queue = new BullQueue(QUEUE_NAME, {
-			prefix,
-			settings: { ...this.globalConfig.queue.bull.settings, maxStalledCount: 0 },
-			createClient: (type) => service.createClient({ type: `${type}(bull)` }),
-		});
+			this.queue = new BullQueue<JobData>(QUEUE_NAME, {
+				prefix,
+				settings: { ...this.globalConfig.queue.bull.settings, maxStalledCount: 0 },
+				createClient: (type) => service.createClient({ type: `${type}(bull)` }),
+			}) as unknown as JobQueue;
+		}
 
 		this.registerListeners();
 
@@ -85,10 +89,10 @@ export class ScalingService {
 
 		const MCP_SESSION_TTL = 86400;
 		const getMcpSessionKey = (sessionId: string) =>
-			`${this.globalConfig.redis.prefix}:mcp-session:${sessionId}`;
+			`${this.scalingPrefix}:mcp-session:${sessionId}`;
 
 		const mcpServer = McpServer.instance(this.logger);
-		const redisStore = new RedisSessionStore(
+		const sessionStore = new RedisSessionStore(
 			{
 				set: async (key, value, ttl) => await publisher.set(key, value, ttl),
 				get: async (key) => await publisher.get(key),
@@ -98,10 +102,20 @@ export class ScalingService {
 			MCP_SESSION_TTL,
 		);
 
-		mcpServer.setSessionStore(redisStore);
+		mcpServer.setSessionStore(sessionStore);
 		mcpServer.setExecutionStrategy(new QueuedExecutionStrategy(mcpServer.getPendingCallsManager()));
 
 		this.logger.debug('Queue setup completed');
+	}
+
+	private get scalingBackend() {
+		return this.globalConfig.queue?.backend ?? 'ferricflow';
+	}
+
+	private get scalingPrefix() {
+		return this.scalingBackend === 'ferricflow'
+			? this.globalConfig.queue.ferricflow.prefix
+			: this.globalConfig.redis.prefix;
 	}
 
 	setupWorker(concurrency: number) {

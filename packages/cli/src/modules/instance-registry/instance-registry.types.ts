@@ -9,12 +9,14 @@ export const REGISTRY_CONSTANTS = {
 	STATE_TTL_SECONDS: 300, // 5 minutes - leadership handoff state
 } as const;
 
-/**
- * Redis key patterns using hash tags for Redis Cluster compatibility
- * Hash tag {instance:} ensures all keys land in same slot for atomic operations
- */
-export const REDIS_KEY_PATTERNS = {
+export const INSTANCE_REGISTRY_KEY_PATTERNS = {
 	instanceKey: (prefix: string, instanceKey: string) => `${prefix}:{instance:}${instanceKey}`,
 	membershipSet: (prefix: string) => `${prefix}:{instance:}members`,
 	stateKey: (prefix: string) => `${prefix}:{instance:}state`,
 } as const;
+
+/**
+ * Redis key patterns using hash tags for Redis Cluster compatibility.
+ * Hash tag {instance:} ensures all keys land in same slot for atomic operations.
+ */
+export const REDIS_KEY_PATTERNS = INSTANCE_REGISTRY_KEY_PATTERNS;

@@ -20,6 +20,10 @@ const queue = mock<JobQueue>({
 	client: { ping: vi.fn() },
 });
 
+const { ferricFlowQueueCreate } = vi.hoisted(() => ({
+	ferricFlowQueueCreate: vi.fn(),
+}));
+
 vi.mock('bull', () => ({
 	__esModule: true,
 	// Source does `new BullQueue(...)`; Vitest constructs the implementation, and
@@ -29,11 +33,18 @@ vi.mock('bull', () => ({
 	}),
 }));
 
+vi.mock('@/scaling/ferricflow/ferricflow-queue', () => ({
+	FerricFlowQueue: {
+		create: ferricFlowQueueCreate,
+	},
+}));
+
 describe('ScalingService', () => {
 	const Bull = vi.mocked(BullModule.default);
 
 	const globalConfig = mockInstance(GlobalConfig, {
 		queue: {
+			backend: 'bull',
 			bull: {
 				prefix: 'bull',
 				redis: {
@@ -88,6 +99,7 @@ describe('ScalingService', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		ferricFlowQueueCreate.mockResolvedValue(queue);
 		// @ts-expect-error readonly property
 		instanceSettings.instanceType = 'main';
 		instanceSettings.markAsLeader();
@@ -125,6 +137,20 @@ describe('ScalingService', () => {
 	});
 
 	describe('setupQueue', () => {
+		it('should use FerricFlow by default when no backend is configured', async () => {
+			const originalBackend = globalConfig.queue.backend;
+			globalConfig.queue.backend = undefined as never;
+
+			try {
+				await scalingService.setupQueue();
+
+				expect(ferricFlowQueueCreate).toHaveBeenCalledWith(globalConfig, expect.anything());
+				expect(Bull).not.toHaveBeenCalled();
+			} finally {
+				globalConfig.queue.backend = originalBackend;
+			}
+		});
+
 		describe('if leader main', () => {
 			it('should set up queue + listeners + queue recovery', async () => {
 				await scalingService.setupQueue();
@@ -311,7 +337,6 @@ describe('ScalingService', () => {
 
 		it('should filter out `null` in Redis response', async () => {
 			await scalingService.setupQueue();
-			// @ts-expect-error - Untyped but possible Redis response
 			queue.getJobs.mockResolvedValue([mock<Job>(), null]);
 
 			const jobs = await scalingService.findJobsByStatus(['waiting']);

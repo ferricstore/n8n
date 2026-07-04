@@ -37,6 +37,7 @@ catalog:
   '@codemirror/state': 6.5.3
   '@codemirror/view': 6.39.8
   '@daytona/sdk': 0.187.0
+  '@ferricstore/ferricstore': 0.1.4
   '@iconify-json/lucide': ^1.2.112
   '@iconify-json/mdi': ^1.1.63
   '@joplin/turndown-plugin-gfm': 1.0.64
@@ -262,3 +263,4 @@ minimumReleaseAge: 4320
 minimumReleaseAgeExclude:
   - '@n8n/*'
   - '@n8n_io/*'
+  - '@ferricstore/*'

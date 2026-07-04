@@ -290,6 +290,10 @@ describe('GlobalConfig', () => {
 				prefix: 'cache',
 				ttl: 3600000,
 			},
+			ferricstore: {
+				prefix: 'cache',
+				ttl: 3600000,
+			},
 		},
 		chatTrigger: {
 			disablePublicChat: false,
@@ -353,6 +357,7 @@ describe('GlobalConfig', () => {
 			thinkingEnabled: true,
 		},
 		queue: {
+			backend: 'ferricflow',
 			health: {
 				active: false,
 				port: 5678,
@@ -388,6 +393,16 @@ describe('GlobalConfig', () => {
 					lockRenewTime: 10_000,
 					stalledInterval: 30_000,
 				},
+			},
+			ferricflow: {
+				url: 'ferric://127.0.0.1:6388',
+				prefix: 'n8n',
+				type: 'n8n_execution',
+				queuedState: 'queued',
+				leaseMs: 60_000,
+				pollIntervalMs: 250,
+				maxPollIntervalMs: 5000,
+				sdkPath: '',
 			},
 		},
 		taskRunners: {

@@ -13,6 +13,13 @@ export const CAPABILITIES = {
 	'source-control': { services: ['gitea'] },
 	oidc: { services: ['keycloak'] },
 	observability: { services: ['victoriaLogs', 'victoriaMetrics', 'vector'] },
+	ferricflow: {
+		services: ['ferricstore'],
+		env: {
+			N8N_SCALING_BACKEND: 'ferricflow',
+			N8N_CACHE_BACKEND: 'ferricstore',
+		},
+	},
 	kafka: { services: ['kafka'] },
 	'external-secrets': {
 		services: ['localstack'],

@@ -8,6 +8,13 @@ import { jsonParse } from 'n8n-workflow';
 import type { LogMetadata } from 'n8n-workflow';
 
 import { RedisClientService } from '@/services/redis-client.service';
+import {
+	createFerricStoreClient,
+	readNewFerricFlowWorkflowRecords,
+	seedSeenFerricFlowWorkflowRecords,
+	type FerricStoreClient,
+} from '@/scaling/ferricflow/ferricstore-sdk';
+import { scalingWorkflowDefinition } from '@/scaling/ferricflow/scaling-workflows';
 
 import { PubSubEventBus } from './pubsub.eventbus';
 import type { PubSub } from './pubsub.types';
@@ -32,7 +39,9 @@ export interface McpRelayMessage {
 
 @Service()
 export class Subscriber {
-	private readonly client: SingleNodeClient | MultiNodeClient;
+	private readonly client?: SingleNodeClient | MultiNodeClient;
+
+	private ferricClient?: Promise<FerricStoreClient>;
 
 	private readonly commandChannel: string;
 
@@ -44,6 +53,10 @@ export class Subscriber {
 	private mcpRelayHandler?: (msg: McpRelayMessage) => void;
 
 	private readonly debouncedHandlers = new Map<string, ReturnType<typeof debounce>>();
+
+	private readonly ferricWorkflowSubscriptions = new Map<string, { seen: Set<string> }>();
+
+	private stopped = false;
 
 	constructor(
 		private readonly logger: Logger,
@@ -59,35 +72,20 @@ export class Subscriber {
 		this.logger = this.logger.scoped(['scaling', 'pubsub']);
 
 		// Build prefixed channel names for proper isolation between deployments
-		const prefix = this.globalConfig.redis.prefix;
+		const prefix = this.scalingPrefix;
 		this.commandChannel = `${prefix}:${COMMAND_PUBSUB_CHANNEL}`;
 		this.workerResponseChannel = `${prefix}:${WORKER_RESPONSE_PUBSUB_CHANNEL}`;
 		this.mcpRelayChannel = `${prefix}:${MCP_RELAY_PUBSUB_CHANNEL}`;
 
+		if (this.scalingBackend === 'ferricflow') {
+			this.ferricClient = this.createFerricClient();
+			return;
+		}
+
 		this.client = this.redisClientService.createClient({ type: 'subscriber(n8n)' });
 
-		const handlerFn = (msg: PubSub.Command | PubSub.WorkerResponse) => {
-			this.pubsubEventBus.emit(this.eventNameFrom(msg), msg.payload);
-		};
-
 		this.client.on('message', (channel: string, str: string) => {
-			// Handle MCP relay messages separately
-			if (channel === this.mcpRelayChannel) {
-				this.handleMcpRelayMessage(str);
-				return;
-			}
-
-			const msg = this.parseMessage(str, channel);
-			if (!msg) return;
-			if (!msg.debounce) return handlerFn(msg);
-
-			const eventName = this.eventNameFrom(msg);
-			let handler = this.debouncedHandlers.get(eventName);
-			if (!handler) {
-				handler = debounce(handlerFn, 300);
-				this.debouncedHandlers.set(eventName, handler);
-			}
-			handler(msg);
+			this.handleChannelMessage(channel, str);
 		});
 	}
 
@@ -134,12 +132,21 @@ export class Subscriber {
 
 	// @TODO: Use `@OnShutdown()` decorator
 	shutdown() {
+		this.stopped = true;
 		for (const handler of this.debouncedHandlers.values()) handler.cancel();
-		this.client.disconnect();
+		this.client?.disconnect();
+		void this.ferricClient?.then(async (client) => await client.close());
 	}
 
 	async subscribe(channel: string) {
-		await this.client.subscribe(channel, (error) => {
+		if (this.executionsConfig.mode !== 'queue') return;
+
+		if (this.scalingBackend === 'ferricflow') {
+			await this.subscribeFerricFlowWorkflow(channel);
+			return;
+		}
+
+		await this.client?.subscribe(channel, (error) => {
 			if (error) {
 				this.logger.error(`Failed to subscribe to channel ${channel}`, { error });
 				return;
@@ -151,6 +158,30 @@ export class Subscriber {
 
 	private eventNameFrom(msg: PubSub.Command | PubSub.WorkerResponse) {
 		return 'command' in msg ? msg.command : msg.response;
+	}
+
+	private handleChannelMessage(channel: string, str: string) {
+		if (channel === this.mcpRelayChannel) {
+			this.handleMcpRelayMessage(str);
+			return;
+		}
+
+		const msg = this.parseMessage(str, channel);
+		if (!msg) return;
+
+		const handlerFn = (message: PubSub.Command | PubSub.WorkerResponse) => {
+			this.pubsubEventBus.emit(this.eventNameFrom(message), message.payload);
+		};
+
+		if (!msg.debounce) return handlerFn(msg);
+
+		const eventName = this.eventNameFrom(msg);
+		let handler = this.debouncedHandlers.get(eventName);
+		if (!handler) {
+			handler = debounce(handlerFn, 300);
+			this.debouncedHandlers.set(eventName, handler);
+		}
+		handler(msg);
 	}
 
 	private parseMessage(str: string, channel: string) {
@@ -191,4 +222,87 @@ export class Subscriber {
 
 		return msg;
 	}
+
+	private get scalingBackend() {
+		return this.globalConfig.queue?.backend ?? 'ferricflow';
+	}
+
+	private get scalingPrefix() {
+		return this.scalingBackend === 'ferricflow'
+			? this.globalConfig.queue.ferricflow.prefix
+			: this.globalConfig.redis.prefix;
+	}
+
+	private createFerricClient() {
+		return createFerricStoreClient(
+			this.globalConfig.queue.ferricflow.sdkPath,
+			this.globalConfig.queue.ferricflow.url,
+			'n8n-scaling-subscriber',
+		);
+	}
+
+	private async getFerricClient() {
+		this.ferricClient ??= this.createFerricClient();
+		return await this.ferricClient;
+	}
+
+	private async subscribeFerricFlowWorkflow(channel: string) {
+		if (this.ferricWorkflowSubscriptions.has(channel)) return;
+
+		const client = await this.getFerricClient();
+		const subscription = {
+			seen: new Set<string>(),
+		};
+		await seedSeenFerricFlowWorkflowRecords(client, {
+			...this.scalingWorkflow(channel),
+			seen: subscription.seen,
+		});
+
+		this.ferricWorkflowSubscriptions.set(channel, subscription);
+		this.logger.debug(`Subscribed to FerricFlow workflow partition ${channel}`);
+
+		void this.ferricFlowWorkflowLoop(channel, subscription);
+	}
+
+	private async ferricFlowWorkflowLoop(channel: string, subscription: { seen: Set<string> }) {
+		while (!this.stopped && this.ferricWorkflowSubscriptions.get(channel) === subscription) {
+			try {
+				const records = await readNewFerricFlowWorkflowRecords<{ message?: string }>(
+					await this.getFerricClient(),
+					{
+						...this.scalingWorkflow(channel),
+						seen: subscription.seen,
+					},
+				);
+
+				for (const record of records) {
+					const message = record.payload?.message;
+					if (message) this.handleChannelMessage(channel, message);
+				}
+			} catch (error) {
+				if (this.stopped) return;
+
+				this.logger.error(`Failed reading FerricFlow workflow partition ${channel}`, { error });
+				await sleep(1000);
+			}
+
+			await sleep(this.pollIntervalMs());
+		}
+	}
+
+	private scalingWorkflow(channel: string) {
+		return scalingWorkflowDefinition(this.scalingPrefix, channel, {
+			commandChannel: this.commandChannel,
+			mcpRelayChannel: this.mcpRelayChannel,
+			workerResponseChannel: this.workerResponseChannel,
+		});
+	}
+
+	private pollIntervalMs() {
+		return this.globalConfig.queue?.ferricflow?.pollIntervalMs ?? 250;
+	}
+}
+
+async function sleep(ms: number) {
+	await new Promise((resolve) => setTimeout(resolve, ms));
 }

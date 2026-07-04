@@ -90,6 +90,7 @@ export abstract class BaseCommand<F = never> {
 	async init(): Promise<void> {
 		this.dbConnection = Container.get(DbConnection);
 		this.errorReporter = Container.get(ErrorReporter);
+		const scalingBackend = this.globalConfig.queue?.backend ?? 'ferricflow';
 
 		const {
 			backendDsn,
@@ -124,8 +125,9 @@ export abstract class BaseCommand<F = never> {
 				Http: true,
 				Postgres: this.globalConfig.database.type === 'postgresdb',
 				Redis:
-					this.globalConfig.executions.mode === 'queue' ||
-					this.globalConfig.cache.backend === 'redis',
+					scalingBackend !== 'ferricflow' &&
+					(this.globalConfig.executions.mode === 'queue' ||
+						this.globalConfig.cache.backend === 'redis'),
 			},
 		});
 
@@ -136,11 +138,19 @@ export abstract class BaseCommand<F = never> {
 
 		await Container.get(LoadNodesAndCredentials).init();
 
-		const useRedisForLocking =
+		const useFerricFlowForLocking =
+			scalingBackend === 'ferricflow' &&
+			(this.globalConfig.executions.mode === 'queue' || this.globalConfig.multiMainSetup.enabled);
+		if (useFerricFlowForLocking) {
+			const { FerricFlowLockService } = await import(
+				'@/scaling/ferricflow/ferricflow-lock.service'
+			);
+			Container.get(LockService).setProvider(Container.get(FerricFlowLockService));
+		} else if (
 			this.globalConfig.executions.mode === 'queue' ||
 			this.globalConfig.multiMainSetup.enabled ||
-			this.globalConfig.cache.backend === 'redis';
-		if (useRedisForLocking) {
+			this.globalConfig.cache.backend === 'redis'
+		) {
 			const { RedisLockService } = await import('@/scaling/redis-lock.service');
 			Container.get(LockService).setProvider(Container.get(RedisLockService));
 		}
