@@ -2,6 +2,19 @@
 
 # n8n – The Platform for AI Agents and Workflow Automation
 
+## FerricStore Fork Example
+
+This public fork is an example of using FerricStore as both:
+
+- a workflow engine for n8n queue-mode execution through FerricFlow workflows
+- a KV store for cache, instance registry, MCP queue-mode session state, and
+  other coordination data that previously depended on Redis
+
+The default scaling backend in this fork is FerricFlow. See
+[`tools/ferricflow-scaling-prototype`](tools/ferricflow-scaling-prototype/README.md)
+for the adapter notes, workflow-state mapping, and local FerricStore run
+instructions.
+
 Fair-code platform to build and deploy AI agents and workflows. Combine a visual canvas with custom code, run it self-hosted or in the [cloud](https://app.n8n.cloud/login), and connect to 1500+ integrations. AI automation you can trust with real work, from prototype to production.
 
 ![n8n.io - Screenshot](https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-screenshot-readme.png)
