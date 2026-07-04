@@ -15,6 +15,36 @@ The default scaling backend in this fork is FerricFlow. See
 for the adapter notes, workflow-state mapping, and local FerricStore run
 instructions.
 
+### Quick FerricStore Setup
+
+Prerequisites:
+
+- Node.js 22.22 or newer
+- pnpm 10.32.1 or newer
+- Docker
+
+Build this fork and start a local queue-mode stack backed by FerricStore:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm build:docker
+pnpm --filter n8n-containers stack --queue --workers 1 \
+  --env N8N_SCALING_BACKEND=ferricflow \
+  --env N8N_CACHE_BACKEND=ferricstore
+```
+
+The stack prints the n8n URL after startup. It starts PostgreSQL, FerricStore,
+one n8n main process, and one n8n worker. Redis is not required for this path.
+
+For an existing deployment, keep n8n's normal SQL database setup and set:
+
+```bash
+EXECUTIONS_MODE=queue
+N8N_SCALING_BACKEND=ferricflow
+N8N_CACHE_BACKEND=ferricstore
+N8N_FERRICFLOW_URL=ferric://ferricstore:6388
+```
+
 Fair-code platform to build and deploy AI agents and workflows. Combine a visual canvas with custom code, run it self-hosted or in the [cloud](https://app.n8n.cloud/login), and connect to 1500+ integrations. AI automation you can trust with real work, from prototype to production.
 
 ![n8n.io - Screenshot](https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-screenshot-readme.png)
