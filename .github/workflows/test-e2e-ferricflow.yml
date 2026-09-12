@@ -26,6 +26,7 @@ jobs:
     uses: ./.github/workflows/prepare-docker-reusable.yml
     with:
       branch: ${{ inputs.branch || github.ref }}
+      runner: ubuntu-latest
     secrets: inherit
 
   ferricflow-e2e:
@@ -40,4 +41,5 @@ jobs:
       pre-generated-matrix: '[{"shard":1,"images":"postgres ferricstore"}]'
       n8n-env: '{"N8N_SCALING_BACKEND":"ferricflow","N8N_CACHE_BACKEND":"ferricstore"}'
       artifact-prefix: ferricflow-e2e
+      runner: ubuntu-latest
     secrets: inherit
