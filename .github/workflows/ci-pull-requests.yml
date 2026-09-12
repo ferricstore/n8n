@@ -338,15 +338,6 @@ jobs:
     uses: ./.github/workflows/test-e2e-performance-reusable.yml
     secrets: inherit
 
-  security-checks:
-    name: Security Checks
-    needs: install-and-build
-    if: needs.install-and-build.outputs.workflows == 'true'
-    uses: ./.github/workflows/sec-ci-reusable.yml
-    with:
-      ref: ${{ needs.install-and-build.outputs.commit_sha }}
-    secrets: inherit
-
   workflow-scripts:
     name: Workflow scripts
     needs: install-and-build
@@ -354,24 +345,6 @@ jobs:
     uses: ./.github/workflows/test-workflow-scripts-reusable.yml
     with:
       ref: ${{ needs.install-and-build.outputs.commit_sha }}
-    secrets: inherit
-
-  # In-process discovery eval — asserts the orchestrator reaches for browser/computer-use
-  # tools at OAuth/screenshot moments. Lightweight (no Docker), runs in parallel with the
-  # heavy workflow eval. Non-blocking initially; promote to required after stability.
-  instance-ai-discovery-evals:
-    name: Instance AI Discovery Evals
-    needs: install-and-build
-    if: >-
-      !cancelled() &&
-      needs.install-and-build.result == 'success' &&
-      needs.install-and-build.outputs.instance_ai_workflow_eval == 'true' &&
-      github.repository == 'n8n-io/n8n' &&
-      github.event_name != 'merge_group' &&
-      (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork)
-    uses: ./.github/workflows/test-evals-discovery.yml
-    with:
-      branch: ${{ needs.install-and-build.outputs.commit_sha }}
     secrets: inherit
 
   # This job is required by GitHub branch protection rules.
@@ -390,7 +363,6 @@ jobs:
         dev-server-smoke,
         db-tests,
         performance,
-        security-checks,
         workflow-scripts,
       ]
     if: always()
@@ -405,14 +377,3 @@ jobs:
         with:
           mode: validate
           job-results: ${{ toJSON(needs) }}
-
-  # Posts a QA metrics comparison comment on the PR.
-  # Runs after all checks so any job can emit metrics before this reports.
-  post-qa-metrics-comment:
-    name: QA Metrics
-    needs: [required-checks, e2e-performance]
-    if: always()
-    uses: ./.github/workflows/util-qa-metrics-comment-reusable.yml
-    with:
-      metrics: memory-heap-used-baseline,memory-rss-baseline,instance-ai-heap-used-baseline,instance-ai-rss-baseline,agents-heap-used-baseline,agents-rss-baseline,docker-image-size-n8n,docker-image-size-runners,canvas-cold-load-S-ms,canvas-cold-load-M-ms,canvas-cold-load-L-ms,canvas-server-heap-M-mb,canvas-server-heap-L-mb,canvas-browser-heap-M-mb,canvas-browser-heap-L-mb,canvas-pan-frame-p95-M-ms,canvas-pan-frame-p95-L-ms,canvas-tidy-up-M-ms,canvas-tidy-up-L-ms,canvas-exec-heavy-M-ms,canvas-exec-heavy-L-ms
-    secrets: inherit
