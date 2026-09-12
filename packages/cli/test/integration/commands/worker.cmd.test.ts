@@ -15,6 +15,7 @@ import { License } from '@/license';
 import { LoadNodesAndCredentials } from '@/load-nodes-and-credentials';
 import { CommunityPackagesService } from '@/modules/community-packages/community-packages.service';
 import { Push } from '@/push';
+import { FerricFlowLockService } from '@/scaling/ferricflow/ferricflow-lock.service';
 import { Publisher } from '@/scaling/pubsub/publisher.service';
 import { Subscriber } from '@/scaling/pubsub/subscriber.service';
 import { ScalingService } from '@/scaling/scaling.service';
@@ -39,6 +40,7 @@ const taskRunnerProcess = mockInstance(JsTaskRunnerProcess);
 mockInstance(PyTaskRunnerProcess);
 mockInstance(Publisher);
 mockInstance(Subscriber);
+mockInstance(FerricFlowLockService);
 mockInstance(Telemetry);
 mockInstance(Push);
 

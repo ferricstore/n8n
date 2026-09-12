@@ -16,6 +16,7 @@ import { ActiveWorkflowManager } from '@/active-workflow-manager';
 import { ImportWorkflowsCommand } from '@/commands/import/workflow';
 import { LoadNodesAndCredentials } from '@/load-nodes-and-credentials';
 import { NodeTypes } from '@/node-types';
+import { FerricFlowLockService } from '@/scaling/ferricflow/ferricflow-lock.service';
 import { WorkflowService } from '@/workflows/workflow.service';
 import { setupTestCommand } from '@test-integration/utils/test-command';
 
@@ -24,6 +25,7 @@ import { createMember, createOwner } from '../shared/db/users';
 mockInstance(LoadNodesAndCredentials);
 mockInstance(ActiveWorkflowManager);
 mockInstance(WorkflowPublishHistoryRepository);
+mockInstance(FerricFlowLockService);
 const mockNodeTypes = mockInstance(NodeTypes);
 
 const command = setupTestCommand(ImportWorkflowsCommand);

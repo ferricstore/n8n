@@ -13,6 +13,7 @@ import type { ConcurrencyControlService } from '@/concurrency/concurrency-contro
 import type { EventService } from '@/events/event.service';
 import type { ExecutionPersistence } from '@/executions/execution-persistence';
 import { LoadNodesAndCredentials } from '@/load-nodes-and-credentials';
+import { Publisher } from '@/scaling/pubsub/publisher.service';
 import { PubSubRegistry } from '@/scaling/pubsub/pubsub.registry';
 import { Subscriber } from '@/scaling/pubsub/subscriber.service';
 import { WorkerServer } from '@/scaling/worker-server';
@@ -32,6 +33,7 @@ deploymentKeyRepository.findActiveByType.mockResolvedValue(null);
 deploymentKeyRepository.insertOrIgnore.mockResolvedValue(undefined);
 
 mockInstance(RedisClientService);
+mockInstance(Publisher);
 mockInstance(PubSubRegistry);
 const mockSubscriber = mockInstance(Subscriber);
 mockInstance(WorkerStatusService);
