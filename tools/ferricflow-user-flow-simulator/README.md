@@ -101,7 +101,7 @@ pnpm install --frozen-lockfile
 docker run -d --name ferricstore-n8n-sim \
   -p 6388:6388 \
   -e FERRICSTORE_PROTECTED_MODE=false \
-  ghcr.io/ferricstore/ferricstore:0.5.7
+  quay.io/ferricstore/ferricstore:0.11.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752
 ```
 
 By default the simulator imports the installed `@ferricstore/ferricstore`
