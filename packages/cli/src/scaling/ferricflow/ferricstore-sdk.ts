@@ -30,6 +30,7 @@ export type FerricFlowRecord = {
 };
 
 type FerricFlowSdk = {
+	FERRICSTORE_SDK_VERSION: string;
 	FerricStoreClient: {
 		fromUrl(
 			url: string,
@@ -41,10 +42,11 @@ type FerricFlowSdk = {
 
 const requireSdk = createRequire(__filename);
 
-async function dynamicImport(specifier: string) {
-	if (process.env.VITEST) return await import(/* @vite-ignore */ specifier);
+async function dynamicImport(specifier: string): Promise<unknown> {
+	if (process.env.VITEST) return (await import(/* @vite-ignore */ specifier)) as unknown;
 
-	return (await eval(`import(${JSON.stringify(specifier)})`)) as unknown;
+	const importPromise = eval(`import(${JSON.stringify(specifier)})`) as Promise<unknown>;
+	return await importPromise;
 }
 
 async function loadModule(specifier: string) {
@@ -191,7 +193,7 @@ function trimSeenSet(seen: Set<string>) {
 }
 
 export function responseText(value: unknown) {
-	if (value == null) return '';
+	if (value === null || value === undefined) return '';
 	if (Buffer.isBuffer(value)) return value.toString('utf8');
 	if (value instanceof Uint8Array) return Buffer.from(value).toString('utf8');
 	return String(value);

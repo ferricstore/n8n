@@ -25,7 +25,7 @@ enqueues a small `JobData` payload in Bull/Redis, and workers load the
 execution by `executionId`. The FerricFlow mapping keeps that shape while
 moving queue orchestration and Redis-style coordination onto FerricStore.
 
-The local `ghcr.io/ferricstore/ferricstore:0.5.7` image used for this prototype
+The local FerricStore 0.11.15 image used for this prototype
 supports the core flow lifecycle shown here. It has a narrower priority range
 than Bull, so the demo keeps n8n's queue priority in the payload instead of
 using FerricFlow priority directly.
@@ -87,7 +87,7 @@ For a local source run, start FerricStore first:
 docker run -d --name ferricstore-n8n \
   -p 6388:6388 \
   -e FERRICSTORE_PROTECTED_MODE=false \
-  ghcr.io/ferricstore/ferricstore:0.5.7
+  quay.io/ferricstore/ferricstore:0.11.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752
 ```
 
 Set the n8n queue and KV environment:
@@ -172,7 +172,7 @@ Start FerricStore:
 docker run -d --name ferricstore-n8n-prototype \
   -p 6388:6388 \
   -e FERRICSTORE_PROTECTED_MODE=false \
-  ghcr.io/ferricstore/ferricstore:0.5.7
+  quay.io/ferricstore/ferricstore:0.11.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752
 ```
 
 From the n8n repo:
@@ -227,8 +227,8 @@ What is currently implemented:
 - Active job leases are renewed with `FLOW.EXTEND_LEASE`.
 
 The adapter uses one shared FerricFlow partition per n8n queue prefix because
-FerricStore 0.5.7 requires partition-scoped claims. A later version can shard
-this by workflow or execution if FerricStore exposes a global due-claim index.
+claims are partition-scoped. It can shard by workflow or execution when the
+server exposes a global due-claim index.
 
 One important naming constraint: do not use a user workflow state named
 `running`; FerricFlow reserves that internal running state for claimed leases.

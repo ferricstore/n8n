@@ -24,7 +24,8 @@
 const DEFAULT_IMAGES = {
 	postgres: 'postgres:18-alpine',
 	redis: 'redis:alpine',
-	ferricstore: 'ghcr.io/ferricstore/ferricstore:0.5.7',
+	ferricstore:
+		'quay.io/ferricstore/ferricstore:0.11.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752',
 	caddy: 'caddy:alpine',
 	n8n: 'n8nio/n8n:local',
 	taskRunner: 'n8nio/runners:local',
