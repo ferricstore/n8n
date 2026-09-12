@@ -5,10 +5,10 @@ import { describe, it } from 'node:test';
 import { TEST_CONTAINER_IMAGES } from './test-containers';
 
 void describe('test container images', () => {
-	void it('pins FerricStore 0.11.15 to its immutable Quay digest', () => {
+	void it('pins FerricStore 0.11.16 to its immutable Quay digest', () => {
 		assert.equal(
 			TEST_CONTAINER_IMAGES.ferricstore,
-			'quay.io/ferricstore/ferricstore:0.11.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752',
+			'quay.io/ferricstore/ferricstore:0.11.16@sha256:6a7364fb1c8936a0bf6658fea5b4c3a563b477291209203af98f1a5d34540d8a',
 		);
 	});
 
@@ -20,7 +20,7 @@ void describe('test container images', () => {
 
 		assert.match(
 			readme,
-			/quay\.io\/ferricstore\/ferricstore:0\.11\.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752/,
+			/quay\.io\/ferricstore\/ferricstore:0\.11\.16@sha256:6a7364fb1c8936a0bf6658fea5b4c3a563b477291209203af98f1a5d34540d8a/,
 		);
 	});
 });

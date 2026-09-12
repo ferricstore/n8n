@@ -25,7 +25,7 @@ enqueues a small `JobData` payload in Bull/Redis, and workers load the
 execution by `executionId`. The FerricFlow mapping keeps that shape while
 moving queue orchestration and Redis-style coordination onto FerricStore.
 
-The local FerricStore 0.11.15 image used for this prototype
+The local FerricStore 0.11.16 image used for this prototype
 supports the core flow lifecycle shown here. It has a narrower priority range
 than Bull, so the demo keeps n8n's queue priority in the payload instead of
 using FerricFlow priority directly.
@@ -87,7 +87,7 @@ For a local source run, start FerricStore first:
 docker run -d --name ferricstore-n8n \
   -p 6388:6388 \
   -e FERRICSTORE_PROTECTED_MODE=false \
-  quay.io/ferricstore/ferricstore:0.11.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752
+  quay.io/ferricstore/ferricstore:0.11.16@sha256:6a7364fb1c8936a0bf6658fea5b4c3a563b477291209203af98f1a5d34540d8a
 ```
 
 Set the n8n queue and KV environment:
@@ -172,7 +172,7 @@ Start FerricStore:
 docker run -d --name ferricstore-n8n-prototype \
   -p 6388:6388 \
   -e FERRICSTORE_PROTECTED_MODE=false \
-  quay.io/ferricstore/ferricstore:0.11.15@sha256:8d86005f22eac945ee13bd4c909f3149435be1dca747839e091830d238d4b752
+  quay.io/ferricstore/ferricstore:0.11.16@sha256:6a7364fb1c8936a0bf6658fea5b4c3a563b477291209203af98f1a5d34540d8a
 ```
 
 From the n8n repo:
