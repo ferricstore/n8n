@@ -6,6 +6,7 @@ import { pathToFileURL } from 'node:url';
 export type FerricStoreClient = {
 	close(): Promise<void>;
 	command(...args: unknown[]): Promise<unknown>;
+	query(query: string, params?: Record<string, string>): Promise<FerricFlowQueryRecordsResult>;
 	create(id: string, options: Record<string, unknown>): Promise<unknown>;
 	claimDue(type: string, options: Record<string, unknown>): Promise<FerricFlowRecord[]>;
 	extendLease(id: string, options: Record<string, unknown>): Promise<FerricFlowRecord>;
@@ -86,7 +87,20 @@ type FerricFlowWorkflowQuery = {
 	seen: Set<string>;
 };
 
+type FerricFlowQueryRecordsResult = {
+	kind: 'records';
+	page: { cursor?: string; hasMore: boolean };
+	records: Array<Record<string, unknown>>;
+};
+
+type FerricFlowWorkflowRow = {
+	id: string;
+	state: string;
+};
+
 const FERRIC_FLOW_WORKFLOW_RECORD_TTL_MS = 24 * 60 * 60 * 1000;
+const FERRIC_FLOW_QUERY_PAGE_SIZE = 100;
+const FERRIC_FLOW_MAX_SEEN = 5000;
 
 export async function createFerricStoreClient(
 	configuredPath: string,
@@ -139,29 +153,19 @@ export async function seedSeenFerricFlowWorkflowRecords(
 	client: FerricStoreClient,
 	query: FerricFlowWorkflowQuery,
 ) {
-	const records = await client.list(query.type, {
-		count: 1000,
-		partitionKey: query.partitionKey,
-		state: query.state,
-	});
+	const records = await scanFerricFlowWorkflowRecords(client, query);
 
-	for (const record of records) query.seen.add(record.id);
+	for (const record of records.reverse()) query.seen.add(record.id);
 }
 
 export async function readNewFerricFlowWorkflowRecords<TPayload = unknown>(
 	client: FerricStoreClient,
 	query: FerricFlowWorkflowQuery,
 ) {
-	const records = await client.list(query.type, {
-		count: 1000,
-		partitionKey: query.partitionKey,
-		state: query.state,
-	});
+	const records = await scanFerricFlowWorkflowRecords(client, query, query.seen);
 	const workflowRecords: Array<FerricFlowWorkflowRecord<TPayload>> = [];
 
 	for (const record of records) {
-		if (query.seen.has(record.id)) continue;
-
 		query.seen.add(record.id);
 		const fullRecord = await client.get(record.id, {
 			full: true,
@@ -180,16 +184,64 @@ export async function readNewFerricFlowWorkflowRecords<TPayload = unknown>(
 }
 
 function trimSeenSet(seen: Set<string>) {
-	const maxSeen = 5000;
-	if (seen.size <= maxSeen) return;
+	if (seen.size <= FERRIC_FLOW_MAX_SEEN) return;
 
-	const excess = seen.size - maxSeen;
+	const excess = seen.size - FERRIC_FLOW_MAX_SEEN;
 	let removed = 0;
 	for (const id of seen) {
 		seen.delete(id);
 		removed += 1;
 		if (removed >= excess) return;
 	}
+}
+
+async function scanFerricFlowWorkflowRecords(
+	client: FerricStoreClient,
+	query: FerricFlowWorkflowQuery,
+	stopAt?: ReadonlySet<string>,
+) {
+	const records: FerricFlowWorkflowRow[] = [];
+	let cursor: string | undefined;
+
+	while (records.length < FERRIC_FLOW_MAX_SEEN) {
+		const params = {
+			partition_key: query.partitionKey,
+			state: query.state,
+			type: query.type,
+			...(cursor === undefined ? {} : { cursor }),
+		};
+		const cursorClause = cursor === undefined ? '' : ' CURSOR @cursor';
+		const result = await client.query(
+			'FROM runs WHERE partition_key = @partition_key AND type = @type AND state = @state ' +
+				`ORDER BY updated_at_ms DESC LIMIT ${FERRIC_FLOW_QUERY_PAGE_SIZE}${cursorClause} ` +
+				'RETURN RECORDS (run_id, state)',
+			params,
+		);
+
+		for (const value of result.records) {
+			const record = workflowRow(value);
+			if (stopAt?.has(record.id)) return records;
+
+			records.push(record);
+			if (records.length >= FERRIC_FLOW_MAX_SEEN) return records;
+		}
+
+		if (!result.page.hasMore) return records;
+		if (!result.page.cursor) throw new TypeError('FerricFlow query page is missing its cursor');
+		cursor = result.page.cursor;
+	}
+
+	return records;
+}
+
+function workflowRow(value: Record<string, unknown>): FerricFlowWorkflowRow {
+	const id = value.run_id;
+	const state = value.state;
+	if (typeof id !== 'string' || typeof state !== 'string') {
+		throw new TypeError('FerricFlow query returned an invalid workflow record');
+	}
+
+	return { id, state };
 }
 
 export function responseText(value: unknown) {
